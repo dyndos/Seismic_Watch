@@ -1,0 +1,130 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: var(--font-unbounded), ui-sans-serif, system-ui, sans-serif;
+  --font-body: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --color-ink: #05080f;
+  --color-abyss: #080d18;
+  --color-panel: #0b1220;
+  --color-panel2: #0e1628;
+  --color-line: #1b2843;
+  --color-line-soft: #141e33;
+  --color-fog: #8fa3c0;
+  --color-mist: #c3d2e8;
+  --color-signal: #5eead4;
+  --color-warn: #fbbf24;
+
+  --animate-pulse-soft: pulse-soft 2.4s ease-in-out infinite;
+  --animate-fade-up: fade-up 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--color-ink);
+  color: var(--color-mist);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: rgba(94, 234, 212, 0.25);
+  color: #e8faff;
+}
+
+/* fine topographic grid backdrop */
+.bg-grid {
+  background-image:
+    linear-gradient(to right, rgba(66, 94, 145, 0.07) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(66, 94, 145, 0.07) 1px, transparent 1px);
+  background-size: 56px 56px;
+}
+
+.bg-radial-fade {
+  background: radial-gradient(ellipse 90% 60% at 50% -10%, rgba(56, 189, 248, 0.12), transparent 65%),
+    radial-gradient(ellipse 60% 45% at 85% 110%, rgba(94, 234, 212, 0.07), transparent 60%);
+}
+
+.panel {
+  background: linear-gradient(180deg, rgba(17, 26, 45, 0.55), rgba(9, 14, 26, 0.75));
+  border: 1px solid rgba(48, 68, 108, 0.45);
+  border-radius: 1rem;
+  backdrop-filter: blur(6px);
+}
+
+.panel-inset {
+  background: rgba(7, 11, 21, 0.6);
+  border: 1px solid rgba(40, 58, 95, 0.4);
+  border-radius: 0.75rem;
+}
+
+.glow-text {
+  text-shadow: 0 0 26px rgba(94, 234, 212, 0.45);
+}
+
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* thin scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #26365a transparent;
+}
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #26365a;
+  border-radius: 8px;
+}
+
+/* leafet container rounded + dark popups */
+.leaflet-container {
+  background: #070b14;
+  font: inherit;
+}
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: #0d1526;
+  color: #c3d2e8;
+  border: 1px solid #223355;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+.leaflet-bar a {
+  background: #0d1526;
+  color: #c3d2e8;
+  border-color: #223355;
+}
+.leaflet-control-attribution {
+  background: rgba(7, 11, 20, 0.7) !important;
+  color: #55688c !important;
+  font-size: 10px !important;
+}
+.leaflet-control-attribution a {
+  color: #7f96bd !important;
+}
+.leaflet-tooltip {
+  background: #0d1526;
+  color: #c3d2e8;
+  border: 1px solid #223355;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator {
+  filter: invert(0.6);
+}
