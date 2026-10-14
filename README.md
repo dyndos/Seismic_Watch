@@ -40,8 +40,6 @@
 
 ## Скриншоты
 
-> Инструкция по съёмке — `docs/screenshots/README.md` (есть авто-скрипт `scripts/screenshot.mjs`).
-
 ![dashboard](docs/screenshots/01-dashboard.png)
 ![map](docs/screenshots/03-analysis-map.png)
 ![forecast](docs/screenshots/04-analysis-forecast.png)
