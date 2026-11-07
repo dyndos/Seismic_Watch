@@ -5,5 +5,5 @@ pyproj>=3.6
 scikit-learn>=1.4
 xarray>=2024.1
 netCDF4>=1.6
-cutde>=23.6.2
+cutde>=26.3.6
 pytest>=8.0
