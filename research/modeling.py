@@ -79,7 +79,7 @@ def fit_spatial_rate_models(cells: list[dict[str, Any]], counts: np.ndarray,
         raise ValueError("training_years must be positive")
     n = len(cells)
     global_rate = max(float(np.sum(counts)) / max(training_years, 1e-6), 1e-8)
-    prior_count = max(0.02, float(np.sum(counts)) / max(n, 1))
+    prior_count = max(1e-4, 0.01 * float(np.sum(counts)) / max(n, 1))
     k0 = (counts + prior_count) / (training_years + 1.0)
 
     def fit(features: np.ndarray, alpha: float) -> tuple[np.ndarray, str]:
@@ -134,15 +134,14 @@ def probabilities_from_rate(rate_per_year: np.ndarray, days: float) -> np.ndarra
 
 
 def forecast_k3(rate_per_year: np.ndarray, delta_cfs_mpa: np.ndarray,
-                days: float,
+                interval_days: float,
                 a_sigma_values_mpa: tuple[float, ...] = (0.03, 0.1, 0.3)) -> dict[str, np.ndarray]:
-    """Static stress-step rate scenario; parameter uncertainty is retained."""
+    """Instantaneous post-step rate ratio exp(ΔCFS/Aσ), integrated over an interval."""
     rates = []
     for a_sigma in a_sigma_values_mpa:
         x = np.clip(np.asarray(delta_cfs_mpa, dtype=float) / a_sigma, -5.0, 5.0)
-        factor = np.exp(x)
-        adjusted = np.asarray(rate_per_year, dtype=float) * factor
-        rates.append(probabilities_from_rate(adjusted, days))
+        adjusted = np.asarray(rate_per_year, dtype=float) * np.exp(x)
+        rates.append(probabilities_from_rate(adjusted, interval_days))
     stack = np.stack(rates, axis=0)
     return {
         "probability": np.nanmedian(stack, axis=0),
@@ -152,10 +151,13 @@ def forecast_k3(rate_per_year: np.ndarray, delta_cfs_mpa: np.ndarray,
 
 
 def forecast_k4(rate_per_year: np.ndarray, delta_cfs_mpa: np.ndarray,
-                days: float) -> dict[str, np.ndarray]:
-    """Time-dependent Dieterich rate-and-state forecast over the specified horizon."""
+                start_elapsed_days: float,
+                end_elapsed_days: float) -> dict[str, np.ndarray]:
+    """Dieterich time-dependent expected rate over an interval after stress step."""
     rate_day = np.asarray(rate_per_year, dtype=float) / DAYS_PER_YEAR
-    ensemble = rate_state_ensemble(rate_day, delta_cfs_mpa, days)
+    ensemble = rate_state_ensemble(
+        rate_day, delta_cfs_mpa, start_elapsed_days, end_elapsed_days
+    )
     expected = ensemble["expected_count_median"]
     expected_p10 = ensemble["expected_count_p10"]
     expected_p90 = ensemble["expected_count_p90"]
