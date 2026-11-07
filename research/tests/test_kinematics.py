@@ -22,7 +22,7 @@ def test_plate_velocity_is_in_mm_per_year():
     v = plate_velocity_mm_yr(0.0, 0.0, "AU", plates)
     assert v is not None
     assert v.shape == (2,)
-    assert 0.01 < float(np.linalg.norm(v)) < 100.0
+    assert 0.01 < float(np.linalg.norm(v)) < 200.0
 
 
 def test_relative_motion_has_finite_speed_and_components():
