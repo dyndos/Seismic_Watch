@@ -1,0 +1,398 @@
+{
+  "dataset": "NNR-MORVEL56 plate angular velocities, Pacific-fixed reference frame",
+  "citation": "Argus, Gordon & DeMets (2011), Geochemistry, Geophysics, Geosystems, 12, Q11001. https://doi.org/10.1029/2011GC003751",
+  "table": "Table 3, Pacific Plate Fixed",
+  "units": {
+    "pole_latitude_deg": "degree",
+    "pole_longitude_deg": "degree",
+    "angular_rate_deg_per_Ma": "degree per million years"
+  },
+  "note": "Relative motion between two plates is obtained by subtracting their angular-velocity vectors, so the Pacific-fixed reference cancels. Rates are geological long-term averages, not a real-time GNSS solution.",
+  "plates": [
+    {
+      "code": "AM",
+      "name": "Amur",
+      "pole_latitude_deg": 65.92,
+      "pole_longitude_deg": -82.68,
+      "angular_rate_deg_per_Ma": 0.929
+    },
+    {
+      "code": "AN",
+      "name": "Antarctica",
+      "pole_latitude_deg": 65.92,
+      "pole_longitude_deg": -78.53,
+      "angular_rate_deg_per_Ma": 0.887
+    },
+    {
+      "code": "AR",
+      "name": "Arabia",
+      "pole_latitude_deg": 60.02,
+      "pole_longitude_deg": -33.23,
+      "angular_rate_deg_per_Ma": 1.159
+    },
+    {
+      "code": "AU",
+      "name": "Australia",
+      "pole_latitude_deg": 60.08,
+      "pole_longitude_deg": 6.33,
+      "angular_rate_deg_per_Ma": 1.079
+    },
+    {
+      "code": "CP",
+      "name": "Capricorn",
+      "pole_latitude_deg": 62.34,
+      "pole_longitude_deg": -10.12,
+      "angular_rate_deg_per_Ma": 1.139
+    },
+    {
+      "code": "CA",
+      "name": "Caribbean",
+      "pole_latitude_deg": 55.76,
+      "pole_longitude_deg": -77.48,
+      "angular_rate_deg_per_Ma": 0.905
+    },
+    {
+      "code": "CO",
+      "name": "Cocos",
+      "pole_latitude_deg": 42.18,
+      "pole_longitude_deg": -112.78,
+      "angular_rate_deg_per_Ma": 1.676
+    },
+    {
+      "code": "EU",
+      "name": "Eurasia",
+      "pole_latitude_deg": 61.27,
+      "pole_longitude_deg": -78.87,
+      "angular_rate_deg_per_Ma": 0.856
+    },
+    {
+      "code": "IN",
+      "name": "India",
+      "pole_latitude_deg": 61.39,
+      "pole_longitude_deg": -31.21,
+      "angular_rate_deg_per_Ma": 1.141
+    },
+    {
+      "code": "JF",
+      "name": "Juan de Fuca",
+      "pole_latitude_deg": -0.62,
+      "pole_longitude_deg": 37.84,
+      "angular_rate_deg_per_Ma": 0.625
+    },
+    {
+      "code": "LW",
+      "name": "Lwandle",
+      "pole_latitude_deg": 60.03,
+      "pole_longitude_deg": -66.9,
+      "angular_rate_deg_per_Ma": 0.932
+    },
+    {
+      "code": "MQ",
+      "name": "Macquarie",
+      "pole_latitude_deg": 59.21,
+      "pole_longitude_deg": -7.98,
+      "angular_rate_deg_per_Ma": 1.686
+    },
+    {
+      "code": "NZ",
+      "name": "Nazca",
+      "pole_latitude_deg": 55.86,
+      "pole_longitude_deg": -87.76,
+      "angular_rate_deg_per_Ma": 1.311
+    },
+    {
+      "code": "NA",
+      "name": "North America",
+      "pole_latitude_deg": 48.89,
+      "pole_longitude_deg": -71.71,
+      "angular_rate_deg_per_Ma": 0.75
+    },
+    {
+      "code": "NB",
+      "name": "Nubia",
+      "pole_latitude_deg": 58.68,
+      "pole_longitude_deg": -66.57,
+      "angular_rate_deg_per_Ma": 0.935
+    },
+    {
+      "code": "PS",
+      "name": "Philippine Sea",
+      "pole_latitude_deg": -4.63,
+      "pole_longitude_deg": -41.87,
+      "angular_rate_deg_per_Ma": 0.89
+    },
+    {
+      "code": "RI",
+      "name": "Rivera",
+      "pole_latitude_deg": 25.69,
+      "pole_longitude_deg": -104.8,
+      "angular_rate_deg_per_Ma": 4.966
+    },
+    {
+      "code": "SW",
+      "name": "Sandwich",
+      "pole_latitude_deg": -3.84,
+      "pole_longitude_deg": -42.36,
+      "angular_rate_deg_per_Ma": 1.444
+    },
+    {
+      "code": "SC",
+      "name": "Scotia",
+      "pole_latitude_deg": 57.84,
+      "pole_longitude_deg": -78.02,
+      "angular_rate_deg_per_Ma": 0.755
+    },
+    {
+      "code": "SM",
+      "name": "Somalia",
+      "pole_latitude_deg": 59.27,
+      "pole_longitude_deg": -73.55,
+      "angular_rate_deg_per_Ma": 0.98
+    },
+    {
+      "code": "SA",
+      "name": "South America",
+      "pole_latitude_deg": 55.97,
+      "pole_longitude_deg": -77.03,
+      "angular_rate_deg_per_Ma": 0.653
+    },
+    {
+      "code": "SU",
+      "name": "Sunda",
+      "pole_latitude_deg": 59.81,
+      "pole_longitude_deg": -77.96,
+      "angular_rate_deg_per_Ma": 0.973
+    },
+    {
+      "code": "SR",
+      "name": "Sur",
+      "pole_latitude_deg": 55.69,
+      "pole_longitude_deg": -75.77,
+      "angular_rate_deg_per_Ma": 0.636
+    },
+    {
+      "code": "YZ",
+      "name": "Yangtze",
+      "pole_latitude_deg": 65.45,
+      "pole_longitude_deg": -82.38,
+      "angular_rate_deg_per_Ma": 0.968
+    },
+    {
+      "code": "AS",
+      "name": "Aegean Sea",
+      "pole_latitude_deg": 74.36,
+      "pole_longitude_deg": -70.76,
+      "angular_rate_deg_per_Ma": 0.648
+    },
+    {
+      "code": "AP",
+      "name": "Altiplano",
+      "pole_latitude_deg": 34.56,
+      "pole_longitude_deg": -77.01,
+      "angular_rate_deg_per_Ma": 0.929
+    },
+    {
+      "code": "AT",
+      "name": "Anatolia",
+      "pole_latitude_deg": 54.82,
+      "pole_longitude_deg": 9.12,
+      "angular_rate_deg_per_Ma": 1.667
+    },
+    {
+      "code": "BR",
+      "name": "Balmoral Reef",
+      "pole_latitude_deg": 45.9,
+      "pole_longitude_deg": -111,
+      "angular_rate_deg_per_Ma": 0.2
+    },
+    {
+      "code": "BS",
+      "name": "Banda Sea",
+      "pole_latitude_deg": 13.34,
+      "pole_longitude_deg": 122.56,
+      "angular_rate_deg_per_Ma": 2.248
+    },
+    {
+      "code": "BH",
+      "name": "Birds Head",
+      "pole_latitude_deg": 11.59,
+      "pole_longitude_deg": 88.39,
+      "angular_rate_deg_per_Ma": 0.346
+    },
+    {
+      "code": "BU",
+      "name": "Burma",
+      "pole_latitude_deg": 7.86,
+      "pole_longitude_deg": -76.63,
+      "angular_rate_deg_per_Ma": 2.523
+    },
+    {
+      "code": "CL",
+      "name": "Caroline",
+      "pole_latitude_deg": 0.99,
+      "pole_longitude_deg": -27.64,
+      "angular_rate_deg_per_Ma": 0.199
+    },
+    {
+      "code": "CR",
+      "name": "Conway Reef",
+      "pole_latitude_deg": -12.56,
+      "pole_longitude_deg": 174.43,
+      "angular_rate_deg_per_Ma": 3.609
+    },
+    {
+      "code": "EA",
+      "name": "Easter",
+      "pole_latitude_deg": 28.04,
+      "pole_longitude_deg": 66.32,
+      "angular_rate_deg_per_Ma": 11.42
+    },
+    {
+      "code": "FT",
+      "name": "Futuna",
+      "pole_latitude_deg": -10.12,
+      "pole_longitude_deg": -178.82,
+      "angular_rate_deg_per_Ma": 4.847
+    },
+    {
+      "code": "GP",
+      "name": "Galapagos",
+      "pole_latitude_deg": 8.94,
+      "pole_longitude_deg": 79.43,
+      "angular_rate_deg_per_Ma": 5.307
+    },
+    {
+      "code": "JZ",
+      "name": "Juan Fernandez",
+      "pole_latitude_deg": 35.77,
+      "pole_longitude_deg": 70.11,
+      "angular_rate_deg_per_Ma": 22.532
+    },
+    {
+      "code": "KE",
+      "name": "Kermadec",
+      "pole_latitude_deg": 47.61,
+      "pole_longitude_deg": -1.83,
+      "angular_rate_deg_per_Ma": 2.832
+    },
+    {
+      "code": "MN",
+      "name": "Manus",
+      "pole_latitude_deg": -3.04,
+      "pole_longitude_deg": 150.46,
+      "angular_rate_deg_per_Ma": 51.3
+    },
+    {
+      "code": "MO",
+      "name": "Maoke",
+      "pole_latitude_deg": 57.43,
+      "pole_longitude_deg": 79.96,
+      "angular_rate_deg_per_Ma": 0.918
+    },
+    {
+      "code": "MA",
+      "name": "Mariana",
+      "pole_latitude_deg": 39.19,
+      "pole_longitude_deg": 144.24,
+      "angular_rate_deg_per_Ma": 1.319
+    },
+    {
+      "code": "MS",
+      "name": "Molucca Sea",
+      "pole_latitude_deg": 10.54,
+      "pole_longitude_deg": -56.78,
+      "angular_rate_deg_per_Ma": 3.915
+    },
+    {
+      "code": "NH",
+      "name": "New Hebrides",
+      "pole_latitude_deg": 13,
+      "pole_longitude_deg": -12,
+      "angular_rate_deg_per_Ma": 2.7
+    },
+    {
+      "code": "NI",
+      "name": "Niuafo'ou",
+      "pole_latitude_deg": 6.95,
+      "pole_longitude_deg": -169.62,
+      "angular_rate_deg_per_Ma": 3.248
+    },
+    {
+      "code": "ND",
+      "name": "North Andes",
+      "pole_latitude_deg": 59.68,
+      "pole_longitude_deg": -80.24,
+      "angular_rate_deg_per_Ma": 0.716
+    },
+    {
+      "code": "NN",
+      "name": "North Bismarck",
+      "pole_latitude_deg": -4,
+      "pole_longitude_deg": 139,
+      "angular_rate_deg_per_Ma": 0.33
+    },
+    {
+      "code": "OK",
+      "name": "Okhotsk",
+      "pole_latitude_deg": 55.81,
+      "pole_longitude_deg": -76.2,
+      "angular_rate_deg_per_Ma": 0.844
+    },
+    {
+      "code": "ON",
+      "name": "Okinawa",
+      "pole_latitude_deg": 49.3,
+      "pole_longitude_deg": 141.58,
+      "angular_rate_deg_per_Ma": 2.743
+    },
+    {
+      "code": "PM",
+      "name": "Panama",
+      "pole_latitude_deg": 55.66,
+      "pole_longitude_deg": -88.73,
+      "angular_rate_deg_per_Ma": 0.906
+    },
+    {
+      "code": "SL",
+      "name": "Shetland",
+      "pole_latitude_deg": 65.24,
+      "pole_longitude_deg": -92.39,
+      "angular_rate_deg_per_Ma": 0.87
+    },
+    {
+      "code": "SS",
+      "name": "Solomon Sea",
+      "pole_latitude_deg": 19.26,
+      "pole_longitude_deg": 133.82,
+      "angular_rate_deg_per_Ma": 1.509
+    },
+    {
+      "code": "SB",
+      "name": "South Bismarck",
+      "pole_latitude_deg": 10.61,
+      "pole_longitude_deg": -32.99,
+      "angular_rate_deg_per_Ma": 8.44
+    },
+    {
+      "code": "TI",
+      "name": "Timor",
+      "pole_latitude_deg": 15.62,
+      "pole_longitude_deg": 113.28,
+      "angular_rate_deg_per_Ma": 1.629
+    },
+    {
+      "code": "TO",
+      "name": "Tonga",
+      "pole_latitude_deg": 28.82,
+      "pole_longitude_deg": 2.57,
+      "angular_rate_deg_per_Ma": 9.303
+    },
+    {
+      "code": "WL",
+      "name": "Woodlark",
+      "pole_latitude_deg": 21.81,
+      "pole_longitude_deg": 131.23,
+      "angular_rate_deg_per_Ma": 1.578
+    }
+  ]
+}
