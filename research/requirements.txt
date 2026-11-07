@@ -1,0 +1,9 @@
+numpy>=1.26,<3
+scipy>=1.11
+requests>=2.31
+pyproj>=3.6
+scikit-learn>=1.4
+xarray>=2024.1
+netCDF4>=1.6
+cutde>=23.6.2
+pytest>=8.0
