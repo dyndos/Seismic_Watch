@@ -496,9 +496,14 @@ def run_blind_test(args: argparse.Namespace) -> Path:
         npz_path = output_dir / meta["snapshot_npz"]
         snapshot = np.load(npz_path, allow_pickle=False)
         probability = snapshot["probability"]
+        interval_probability = snapshot["interval_probability"]
+        previous_end = 0
         for h_idx, days in enumerate(HORIZONS_DAYS):
             positives, event_indices, matched = assign_outcomes_to_grid(
                 catalog, cells, cutoff_ms, days, TARGET_MAG
+            )
+            interval_positives, interval_indices, interval_matched = assign_outcomes_to_grid(
+                catalog, cells, cutoff_ms, days, TARGET_MAG, start_days=previous_end
             )
             for model_idx, model_name in enumerate(MODEL_NAMES):
                 row: dict[str, Any] = {
@@ -507,34 +512,66 @@ def run_blind_test(args: argparse.Namespace) -> Path:
                     "cutoff_utc": meta["cutoff_utc"],
                     "model": model_name,
                     "horizon_days": days,
+                    "interval_start_days": previous_end,
+                    "interval_end_days": days,
                     "target_magnitude": TARGET_MAG,
                     "status": "ok",
+                    "hindcast_class": (
+                        "retrospective_modern_geophysics" if model_name in ("K2", "K3", "K4")
+                        else "occurrence_time_hindcast"
+                    ),
                 }
                 if model_name == "K2" and meta["training_model_status"]["K2"] != "ok":
                     row["status"] = "not_scored_no_coupling_coverage"
                 elif model_name in ("K3", "K4") and meta["physical_data_status"]["status"] != "ok":
                     row["status"] = meta["physical_data_status"]["status"]
                 else:
-                    metric = score_spatial_probability(
+                    cumulative_metric = score_spatial_probability(
                         probability[model_idx, h_idx].astype(float),
                         positives, event_indices, cells,
                     )
-                    row.update(metric)
+                    interval_metric = score_spatial_probability(
+                        interval_probability[model_idx, h_idx].astype(float),
+                        interval_positives, interval_indices, cells,
+                    )
+                    row.update(cumulative_metric)
+                    row["brier_interval"] = interval_metric.get("brier_spatial")
+                    row["log_loss_interval"] = interval_metric.get("log_loss_spatial")
+                    row["observed_interval_events"] = interval_metric.get("observed_events")
+                    row["interval_event_ids"] = [e["id"] for e in interval_matched]
                 row["outcome_event_ids"] = [e["id"] for e in matched]
                 row["outcome_events"] = matched
                 if model_name in ("K3", "K4"):
                     row["physical_source_quality"] = (
                         meta["physical_data_status"].get("source", {}).get("quality")
                     )
+                    row["K3_K4_base_rate_model"] = meta.get("K3_K4_base_rate_model")
                 scores.append(row)
+            previous_end = days
+
+    # Paired skill against K0 for the same cutoff and horizon.
+    k0_brier = {
+        (r["cutoff_id"], r["horizon_days"]): r.get("brier_spatial")
+        for r in scores if r["model"] == "K0" and r.get("status") == "ok"
+    }
+    for row in scores:
+        baseline = k0_brier.get((row["cutoff_id"], row["horizon_days"]))
+        candidate = row.get("brier_spatial")
+        row["brier_skill_vs_K0"] = (
+            1.0 - float(candidate) / float(baseline)
+            if candidate is not None and baseline is not None and baseline > 0
+            else None
+        )
 
     scores_path = output_dir / "scores.json"
     scores_path.write_text(json.dumps(scores, indent=2, ensure_ascii=False), encoding="utf-8")
     csv_path = output_dir / "scores.csv"
     fieldnames = [
-        "cutoff_id", "cutoff_kind", "cutoff_utc", "model", "horizon_days",
-        "target_magnitude", "status", "observed_events", "unique_positive_cells",
-        "brier_spatial", "log_loss_spatial",
+        "cutoff_id", "cutoff_kind", "cutoff_utc", "model", "hindcast_class",
+        "horizon_days", "interval_start_days", "interval_end_days",
+        "target_magnitude", "status", "observed_events", "observed_interval_events",
+        "unique_positive_cells", "brier_spatial", "log_loss_spatial",
+        "brier_interval", "log_loss_interval", "brier_skill_vs_K0",
         "event_capture_top_5pct_area", "event_capture_top_10pct_area",
         "event_capture_top_20pct_area",
         "mean_distance_to_top10pct_area_km", "median_distance_to_top10pct_area_km",
@@ -544,6 +581,10 @@ def run_blind_test(args: argparse.Namespace) -> Path:
         writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(scores)
+
+    def mean_non_null(values: list[Any]) -> float | None:
+        clean = [float(v) for v in values if v is not None and math.isfinite(float(v))]
+        return float(np.mean(clean)) if clean else None
 
     aggregate: list[dict[str, Any]] = []
     for model in MODEL_NAMES:
@@ -555,21 +596,21 @@ def run_blind_test(args: argparse.Namespace) -> Path:
             aggregate.append({
                 "model": model,
                 "horizon_days": days,
+                "hindcast_class": (
+                    "retrospective_modern_geophysics" if model in ("K2", "K3", "K4")
+                    else "occurrence_time_hindcast"
+                ),
                 "eligible_cutoffs": len(eligible),
-                "mean_spatial_brier": (
-                    float(np.mean([r["brier_spatial"] for r in eligible])) if eligible else None
-                ),
-                "mean_log_loss": (
-                    float(np.mean([r["log_loss_spatial"] for r in eligible])) if eligible else None
-                ),
-                "mean_event_capture_top10pct_area": (
-                    float(np.nanmean([r["event_capture_top_10pct_area"] for r in eligible]))
-                    if eligible else None
-                ),
-                "mean_localization_error_km": (
-                    float(np.nanmean([r["mean_distance_to_top10pct_area_km"] for r in eligible]))
-                    if eligible else None
-                ),
+                "mean_spatial_brier": mean_non_null([r.get("brier_spatial") for r in eligible]),
+                "mean_interval_brier": mean_non_null([r.get("brier_interval") for r in eligible]),
+                "mean_log_loss": mean_non_null([r.get("log_loss_spatial") for r in eligible]),
+                "mean_brier_skill_vs_K0": mean_non_null([r.get("brier_skill_vs_K0") for r in eligible]),
+                "mean_event_capture_top10pct_area": mean_non_null([
+                    r.get("event_capture_top_10pct_area") for r in eligible
+                ]),
+                "mean_localization_error_km": mean_non_null([
+                    r.get("mean_distance_to_top10pct_area_km") for r in eligible
+                ]),
             })
     (output_dir / "aggregate_scores.json").write_text(
         json.dumps(aggregate, indent=2), encoding="utf-8"
