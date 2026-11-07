@@ -343,39 +343,42 @@ def calculate_delta_cfs(feature: dict[str, Any], as_of_ms: int,
     }
 
 
-def diet_erich_expected_count(rate_per_day: np.ndarray | float,
-                              delta_cfs_mpa: np.ndarray | float,
-                              days: float,
-                              a_sigma_mpa: float,
-                              characteristic_time_days: float) -> np.ndarray:
-    """Dieterich (1994) cumulative count after a Coulomb stress step.
-
-    N(T) = r*T + r*t_a*ln[exp(x) + (1-exp(x))*exp(-T/t_a)],
-    x = ΔCFS/(Aσ). Both Aσ and ΔCFS are in MPa; time is in days.
-    """
-    if a_sigma_mpa <= 0 or characteristic_time_days <= 0 or days < 0:
-        raise ValueError("Aσ and t_a must be positive; horizon cannot be negative")
+def dieterich_cumulative_count(rate_per_day: np.ndarray | float,
+                               delta_cfs_mpa: np.ndarray | float,
+                               elapsed_days: float,
+                               a_sigma_mpa: float,
+                               characteristic_time_days: float) -> np.ndarray:
+    """Cumulative Dieterich (1994) count after a Coulomb stress step."""
+    if a_sigma_mpa <= 0 or characteristic_time_days <= 0 or elapsed_days < 0:
+        raise ValueError("Aσ and t_a must be positive; elapsed time cannot be negative")
     rate = np.asarray(rate_per_day, dtype=float)
     x = np.clip(np.asarray(delta_cfs_mpa, dtype=float) / a_sigma_mpa, -20.0, 20.0)
     ex = np.exp(x)
-    inside = ex + (1.0 - ex) * np.exp(-days / characteristic_time_days)
+    inside = ex + (1.0 - ex) * np.exp(-elapsed_days / characteristic_time_days)
     inside = np.maximum(inside, np.finfo(float).tiny)
-    expected = rate * days + rate * characteristic_time_days * np.log(inside)
-    return np.maximum(expected, 0.0)
+    cumulative = rate * elapsed_days + rate * characteristic_time_days * np.log(inside)
+    return np.maximum(cumulative, 0.0)
 
 
 def rate_state_ensemble(rate_per_day: np.ndarray,
                         delta_cfs_mpa: np.ndarray,
-                        days: float,
+                        start_elapsed_days: float,
+                        end_elapsed_days: float,
                         a_sigma_values_mpa: tuple[float, ...] = (0.03, 0.1, 0.3),
                         characteristic_times_days: tuple[float, ...] = (30.0, 90.0, 365.0)) -> dict[str, np.ndarray]:
-    """Parameter-sensitivity ensemble; these are scenarios, not fitted constants."""
+    """Expected counts over [start,end] after the stress step; parameters are scenarios."""
+    if end_elapsed_days < start_elapsed_days:
+        raise ValueError("end_elapsed_days must be >= start_elapsed_days")
     outputs = []
     for a_sigma in a_sigma_values_mpa:
         for t_a in characteristic_times_days:
-            outputs.append(diet_erich_expected_count(
-                rate_per_day, delta_cfs_mpa, days, a_sigma, t_a
-            ))
+            before = dieterich_cumulative_count(
+                rate_per_day, delta_cfs_mpa, start_elapsed_days, a_sigma, t_a
+            )
+            after = dieterich_cumulative_count(
+                rate_per_day, delta_cfs_mpa, end_elapsed_days, a_sigma, t_a
+            )
+            outputs.append(np.maximum(after - before, 0.0))
     stack = np.stack(outputs, axis=0)
     return {
         "expected_count_median": np.median(stack, axis=0),
