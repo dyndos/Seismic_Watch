@@ -583,7 +583,7 @@ def run_blind_test(args: argparse.Namespace) -> Path:
         "horizon_days", "interval_start_days", "interval_end_days",
         "target_magnitude", "status", "observed_events", "observed_interval_events",
         "unique_positive_cells", "brier_spatial", "log_loss_spatial",
-        "brier_interval", "log_loss_interval", "brier_skill_vs_K0",
+        "brier_interval", "log_loss_interval", "brier_skill_vs_K0_per_cutoff",
         "event_capture_top_5pct_area", "event_capture_top_10pct_area",
         "event_capture_top_20pct_area",
         "mean_distance_to_top10pct_area_km", "median_distance_to_top10pct_area_km",
@@ -593,10 +593,6 @@ def run_blind_test(args: argparse.Namespace) -> Path:
         writer = csv.DictWriter(handle, fieldnames=fieldnames, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(scores)
-
-    def mean_non_null(values: list[Any]) -> float | None:
-        clean = [float(v) for v in values if v is not None and math.isfinite(float(v))]
-        return float(np.mean(clean)) if clean else None
 
     def mean_non_null(values: list[Any]) -> float | None:
         clean = [float(v) for v in values if v is not None and math.isfinite(float(v))]
@@ -707,6 +703,9 @@ def run_blind_test(args: argparse.Namespace) -> Path:
         writer = csv.DictWriter(handle, fieldnames=list(aggregate[0].keys()))
         writer.writeheader()
         writer.writerows(aggregate)
+    (output_dir / "status_summary.json").write_text(
+        json.dumps(status_summary, indent=2), encoding="utf-8"
+    )
 
     print(f"Finished. Results: {output_dir}", flush=True)
     print(f"Forecast snapshots: {output_dir / 'forecast_snapshots'}", flush=True)
