@@ -17,22 +17,35 @@ def test_morvel56_has_56_entries_and_pacific_reference_is_zero():
     assert _plate_omega("AF", plates) is None
 
 
-def test_plate_velocity_is_in_mm_per_year():
+def test_plate_velocity_matches_independent_sydney_reference_mm_per_year():
+    """AU Euler pole evaluated inside the Australian plate near Sydney.
+
+    Reference vector is independently evaluated from the Table 3 Euler pole
+    (60.08 N, 6.33 E, 1.079 deg/Ma) using v = omega x r and local ENU axes.
+    The 0,0 point used in the original test is outside AU; evaluating an Euler
+    pole there is mathematically possible but is not a meaningful plate-site
+    sanity bound and yields about 104.2 mm/yr.
+    """
     plates = load_morvel()
-    v = plate_velocity_mm_yr(0.0, 0.0, "AU", plates)
-    assert v is not None
-    assert v.shape == (2,)
-    assert 0.01 < float(np.linalg.norm(v)) < 200.0
+    velocity = plate_velocity_mm_yr(-33.8688, 151.2093, "AU", plates)
+    assert velocity is not None
+    np.testing.assert_allclose(
+        velocity,
+        np.array([59.06442475, 34.42860332]),
+        rtol=1e-6,
+        atol=1e-5,
+    )
+    assert 60.0 < float(np.linalg.norm(velocity)) < 80.0
 
 
 def test_relative_motion_has_finite_speed_and_components():
     plates = load_morvel()
     segment = {
         "name": "synthetic boundary", "plate_a": "PA", "plate_b": "AU",
-        "boundary_type": "subduction", "lon1": -1.0, "lat1": 0.0,
-        "lon2": 1.0, "lat2": 0.0,
+        "boundary_type": "subduction", "lon1": 150.0, "lat1": -34.0,
+        "lon2": 152.0, "lat2": -34.0,
     }
-    result = kinematic_features(0.0, 0.0, plates, [segment])
+    result = kinematic_features(-33.8688, 151.2093, plates, [segment])
     assert result["relative_speed_mm_yr"] > 0
     assert math.isfinite(result["normal_velocity_mm_yr"])
     assert math.isfinite(result["parallel_velocity_mm_yr"])
