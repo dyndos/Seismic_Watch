@@ -130,3 +130,22 @@ def test_finite_fault_product_updated_after_cutoff_is_not_used():
     assert source is not None
     assert source["quality"] == "moment_tensor_plus_empirical_rectangle_proxy"
     assert "alternative_plane" in source
+
+
+def test_cutde_halfspace_coulomb_smoke_with_two_nodal_plane_scenarios():
+    import pytest
+    pytest.importorskip("cutde")
+    from research.physical import calculate_delta_cfs
+
+    cells = [
+        {"longitude": 2.0, "latitude": 0.0, "boundary_tangent_azimuth_deg": 90.0,
+         "boundary_type": "subduction"},
+        {"longitude": -2.0, "latitude": 0.0, "boundary_tangent_azimuth_deg": 90.0,
+         "boundary_type": "subduction"},
+    ]
+    result = calculate_delta_cfs(_feature(), 1_700_000_000_000, cells)
+    assert result is not None
+    assert result["source_plane_scenarios"] == 2
+    assert np.isfinite(result["delta_cfs_mpa"]).all()
+    assert np.isfinite(result["delta_cfs_p10_mpa"]).all()
+    assert np.isfinite(result["delta_cfs_p90_mpa"]).all()
