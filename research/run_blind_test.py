@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import collections
 import hashlib
 import gzip
 import io
@@ -597,32 +598,108 @@ def run_blind_test(args: argparse.Namespace) -> Path:
         clean = [float(v) for v in values if v is not None and math.isfinite(float(v))]
         return float(np.mean(clean)) if clean else None
 
+    def mean_non_null(values: list[Any]) -> float | None:
+        clean = [float(v) for v in values if v is not None and math.isfinite(float(v))]
+        return float(np.mean(clean)) if clean else None
+
     aggregate: list[dict[str, Any]] = []
-    for model in MODEL_NAMES:
-        for days in HORIZONS_DAYS:
-            eligible = [
-                r for r in scores if r["model"] == model and r["horizon_days"] == days
-                and r.get("status") == "ok"
-            ]
-            aggregate.append({
-                "model": model,
-                "horizon_days": days,
-                "hindcast_class": (
-                    "retrospective_modern_geophysics" if model in ("K2", "K3", "K4")
-                    else "occurrence_time_hindcast"
-                ),
-                "eligible_cutoffs": len(eligible),
-                "mean_spatial_brier": mean_non_null([r.get("brier_spatial") for r in eligible]),
-                "mean_interval_brier": mean_non_null([r.get("brier_interval") for r in eligible]),
-                "mean_log_loss": mean_non_null([r.get("log_loss_spatial") for r in eligible]),
-                "mean_brier_skill_vs_K0": mean_non_null([r.get("brier_skill_vs_K0") for r in eligible]),
-                "mean_event_capture_top10pct_area": mean_non_null([
-                    r.get("event_capture_top_10pct_area") for r in eligible
-                ]),
-                "mean_localization_error_km": mean_non_null([
-                    r.get("mean_distance_to_top10pct_area_km") for r in eligible
-                ]),
-            })
+    split_values = ("all", "major_event_trigger", "calendar_control")
+    for split in split_values:
+        for model in MODEL_NAMES:
+            for days in HORIZONS_DAYS:
+                eligible = [
+                    r for r in scores
+                    if r["model"] == model and r["horizon_days"] == days
+                    and r.get("status") == "ok"
+                    and (split == "all" or r["cutoff_kind"] == split)
+                ]
+                baseline_by_cutoff = {
+                    r["cutoff_id"]: r
+                    for r in scores
+                    if r["model"] == "K0" and r["horizon_days"] == days
+                    and r.get("status") == "ok"
+                    and (split == "all" or r["cutoff_kind"] == split)
+                }
+                paired = [
+                    (r, baseline_by_cutoff[r["cutoff_id"]])
+                    for r in eligible
+                    if r["cutoff_id"] in baseline_by_cutoff
+                ]
+                candidate_brier_sum = sum(r["brier_spatial"] for r, _ in paired)
+                baseline_brier_sum = sum(b["brier_spatial"] for _, b in paired)
+                candidate_interval_sum = sum(
+                    r["brier_interval"] for r, _ in paired if r.get("brier_interval") is not None
+                )
+                baseline_interval_sum = sum(
+                    b["brier_interval"] for _, b in paired if b.get("brier_interval") is not None
+                )
+                total_events = sum(int(r.get("observed_events") or 0) for r in eligible)
+                capture_weighted = [
+                    (r.get("event_capture_top_10pct_area"), int(r.get("observed_events") or 0))
+                    for r in eligible
+                    if r.get("event_capture_top_10pct_area") is not None
+                    and int(r.get("observed_events") or 0) > 0
+                ]
+                localization_weighted = [
+                    (r.get("mean_distance_to_top10pct_area_km"), int(r.get("observed_events") or 0))
+                    for r in eligible
+                    if r.get("mean_distance_to_top10pct_area_km") is not None
+                    and int(r.get("observed_events") or 0) > 0
+                ]
+                aggregate.append({
+                    "cutoff_group": split,
+                    "model": model,
+                    "horizon_days": days,
+                    "hindcast_class": (
+                        "retrospective_modern_geophysics" if model in ("K2", "K3", "K4")
+                        else "occurrence_time_hindcast"
+                    ),
+                    "eligible_cutoffs": len(eligible),
+                    "paired_cutoffs_vs_K0": len(paired),
+                    "cutoffs_with_target_events": sum(
+                        1 for r in eligible if int(r.get("observed_events") or 0) > 0
+                    ),
+                    "target_events": total_events,
+                    "mean_spatial_brier": mean_non_null([r.get("brier_spatial") for r in eligible]),
+                    "mean_interval_brier": mean_non_null([r.get("brier_interval") for r in eligible]),
+                    "mean_log_loss": mean_non_null([r.get("log_loss_spatial") for r in eligible]),
+                    "pooled_brier_skill_vs_K0": (
+                        1.0 - candidate_brier_sum / baseline_brier_sum
+                        if model != "K0" and paired and baseline_brier_sum > 0 else
+                        (0.0 if model == "K0" and eligible else None)
+                    ),
+                    "pooled_interval_brier_skill_vs_K0": (
+                        1.0 - candidate_interval_sum / baseline_interval_sum
+                        if model != "K0" and paired and baseline_interval_sum > 0 else
+                        (0.0 if model == "K0" and eligible else None)
+                    ),
+                    "event_weighted_capture_top10pct_area": (
+                        sum(float(v) * n for v, n in capture_weighted) /
+                        sum(n for _, n in capture_weighted) if capture_weighted else None
+                    ),
+                    "event_weighted_distance_to_top10pct_area_km": (
+                        sum(float(v) * n for v, n in localization_weighted) /
+                        sum(n for _, n in localization_weighted) if localization_weighted else None
+                    ),
+                })
+
+    status_summary: list[dict[str, Any]] = []
+    for split in split_values:
+        for model in MODEL_NAMES:
+            for days in HORIZONS_DAYS:
+                subset = [
+                    r for r in scores if r["model"] == model
+                    and r["horizon_days"] == days
+                    and (split == "all" or r["cutoff_kind"] == split)
+                ]
+                counts = collections.Counter(r.get("status", "unknown") for r in subset)
+                status_summary.append({
+                    "cutoff_group": split,
+                    "model": model,
+                    "horizon_days": days,
+                    "status_counts": dict(counts),
+                })
+
     (output_dir / "aggregate_scores.json").write_text(
         json.dumps(aggregate, indent=2), encoding="utf-8"
     )
