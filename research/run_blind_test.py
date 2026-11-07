@@ -386,20 +386,45 @@ def _forecast_snapshot(cutoff: dict[str, Any], catalog: list[dict[str, Any]],
     return meta
 
 
+def download_coupling_cloud(destination: Path) -> Path:
+    """Download the public Coupling Cloud model archive into a local data directory."""
+    destination.mkdir(parents=True, exist_ok=True)
+    url = "https://couplingcloud.ucsd.edu/download/all_models"
+    print("      downloading public Coupling Cloud NetCDF archive...", flush=True)
+    response = requests.get(url, timeout=(30, 600),
+                            headers={"User-Agent": "Seismic-Watch-research/0.1"})
+    response.raise_for_status()
+    with zipfile.ZipFile(io.BytesIO(response.content)) as archive:
+        for member in archive.infolist():
+            target = (destination / member.filename).resolve()
+            if destination.resolve() not in target.parents and target != destination.resolve():
+                raise RuntimeError(f"Unsafe path in coupling archive: {member.filename}")
+        archive.extractall(destination)
+    return destination
+
+
 def run_blind_test(args: argparse.Namespace) -> Path:
     output_dir = Path(args.output).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    print("[1/5] Downloading USGS ComCat catalogue (M>=6.0, 2000-2025)...", flush=True)
+    print("[1/5] Downloading USGS ComCat catalogue (M>=6.5, 2000-2025)...", flush=True)
     catalog = fetch_catalog("2000-01-01", "2025-01-01", MIN_TRAIN_MAG)
     catalog.sort(key=_event_time)
     digest = catalog_hash(catalog)
     catalog_end_ms = parse_time_ms("2025-01-01T00:00:00+00:00")
+    raw_snapshot = output_dir / "catalog_snapshot.geojson.gz"
+    raw_bytes = json.dumps(
+        {"type": "FeatureCollection", "features": catalog},
+        separators=(",", ":"), ensure_ascii=False,
+    ).encode("utf-8")
+    raw_snapshot.write_bytes(gzip.compress(raw_bytes, compresslevel=6))
     raw_path = output_dir / "catalog_manifest.json"
     raw_path.write_text(json.dumps({
         "downloaded_utc": datetime.now(timezone.utc).isoformat(),
         "query": {"starttime": "2000-01-01", "endtime": "2025-01-01",
                   "minmagnitude": MIN_TRAIN_MAG, "orderby": "time-asc"},
         "returned_events": len(catalog), "sha256": digest,
+        "compressed_snapshot": raw_snapshot.name,
+        "compressed_snapshot_sha256": hashlib.sha256(raw_snapshot.read_bytes()).hexdigest(),
         "strict_historical_snapshot": False,
     }, indent=2), encoding="utf-8")
 
@@ -411,9 +436,16 @@ def run_blind_test(args: argparse.Namespace) -> Path:
     cell_path = output_dir / "grid.json"
     cell_path.write_text(json.dumps(cells, ensure_ascii=False), encoding="utf-8")
 
-    print("[3/5] Loading optional Coupling Cloud models...", flush=True)
+    print("[3/5] Loading Coupling Cloud geodetic models...", flush=True)
+    if args.download_coupling:
+        try:
+            download_coupling_cloud(Path(args.coupling_dir))
+        except Exception as exc:
+            print(f"      warning: Coupling Cloud download failed: {type(exc).__name__}: {exc}", flush=True)
     coupling = load_coupling_cloud(args.coupling_dir, cells)
     print(f"      coupling coverage: {np.mean(np.isfinite(coupling['coupling_fraction'])):.1%}", flush=True)
+    if not coupling.get("files_used"):
+        print("      K2 will be marked unscored: no compatible coupling NetCDF files found.", flush=True)
 
     cutoffs = select_cutoffs(catalog, args.start_year, args.end_year,
                              args.max_triggers, not args.no_controls)
@@ -562,6 +594,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--no-controls", action="store_true",
                         help="Do not include monthly calendar control cutoffs")
     parser.add_argument("--coupling-dir", default=str(ROOT / "research" / "data" / "coupling_cloud"))
+    parser.add_argument("--download-coupling", action="store_true",
+                        help="Download the current public Coupling Cloud NetCDF archive before running K2")
     parser.add_argument("--output", default=str(ROOT / "research" / "outputs" / "blind-test"))
     return parser
 
