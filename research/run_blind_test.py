@@ -149,19 +149,22 @@ def select_cutoffs(catalog: list[dict[str, Any]], start_year: int, end_year: int
 def assign_outcomes_to_grid(events: list[dict[str, Any]],
                             cells: list[dict[str, Any]],
                             cutoff_ms: int, days: int,
-                            min_magnitude: float = TARGET_MAG) -> tuple[np.ndarray, list[int], list[dict[str, Any]]]:
+                            min_magnitude: float = TARGET_MAG,
+                            start_days: int = 0) -> tuple[np.ndarray, list[int], list[dict[str, Any]]]:
+    """Assign events in (cutoff+start_days, cutoff+days] to the nearest grid cell."""
     xy = np.asarray([[c["x_m"], c["y_m"]] for c in cells], dtype=float)
     tree = cKDTree(xy)
     forward = Transformer.from_crs("EPSG:4326", "EPSG:6933", always_xy=True)
     positives = np.zeros(len(cells), dtype=np.uint8)
     indices: list[int] = []
     matched: list[dict[str, Any]] = []
+    start_ms = cutoff_ms + start_days * DAY_MS
     end_ms = cutoff_ms + days * DAY_MS
     for event in events:
         props = event.get("properties") or {}
         t = int(props.get("time") or 0)
         mag = props.get("mag")
-        if not (cutoff_ms < t <= end_ms) or mag is None or float(mag) < min_magnitude:
+        if not (start_ms < t <= end_ms) or mag is None or float(mag) < min_magnitude:
             continue
         coords = (event.get("geometry") or {}).get("coordinates") or []
         if len(coords) < 2:
@@ -182,7 +185,6 @@ def assign_outcomes_to_grid(events: list[dict[str, Any]],
             "cell_assignment_distance_km": round(float(distance) / 1000.0, 2),
         })
     return positives, indices, matched
-
 
 def score_spatial_probability(probability: np.ndarray, outcomes: np.ndarray,
                                event_indices: list[int], cells: list[dict[str, Any]]) -> dict[str, Any]:
