@@ -341,8 +341,8 @@ def _rectangle_triangles(source: dict[str, Any], transformer: Any) -> tuple[np.n
 
     from cutde.geometry import compute_efcs_to_tdcs_rotations
     rotations = compute_efcs_to_tdcs_rotations(triangles)
-    slips_tdcs = np.einsum("nij,nj->ni", rotations, slips_efcs)
-    return triangles, slips_tdcs
+    slips_tdcs = np.ascontiguousarray(np.einsum("nij,nj->ni", rotations, slips_efcs))
+    return np.ascontiguousarray(triangles), slips_tdcs
 
 
 def _receiver_scenarios(cell: dict[str, Any], source: dict[str, Any]) -> list[tuple[float, float, float]]:
