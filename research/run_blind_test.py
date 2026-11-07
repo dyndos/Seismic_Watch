@@ -343,6 +343,13 @@ def _forecast_snapshot(cutoff: dict[str, Any], catalog: list[dict[str, Any]],
         training_counts=counts.astype(np.float32),
     )
     npz_hash = hashlib.sha256(npz_path.read_bytes()).hexdigest()
+    source_snapshot_path = None
+    source_snapshot_hash = None
+    if detail is not None:
+        source_snapshot_path = snapshot_dir / f"{stem}.source.geojson.gz"
+        source_bytes = json.dumps(detail, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        source_snapshot_path.write_bytes(gzip.compress(source_bytes, compresslevel=6))
+        source_snapshot_hash = hashlib.sha256(source_snapshot_path.read_bytes()).hexdigest()
     meta = {
         **cutoff,
         "cutoff_utc": utc_iso(cutoff_ms),
@@ -370,6 +377,10 @@ def _forecast_snapshot(cutoff: dict[str, Any], catalog: list[dict[str, Any]],
         "K4_model": "Dieterich rate-and-state response to a static Coulomb stress step; no measured afterslip/viscoelastic stress history is ingested",
         "snapshot_npz": str(npz_path.relative_to(output_dir)),
         "snapshot_sha256": npz_hash,
+        "source_event_snapshot": (
+            str(source_snapshot_path.relative_to(output_dir)) if source_snapshot_path else None
+        ),
+        "source_event_snapshot_sha256": source_snapshot_hash,
         "model_names": list(MODEL_NAMES),
         "horizons_days": list(HORIZONS_DAYS),
         "intervals_days": [
