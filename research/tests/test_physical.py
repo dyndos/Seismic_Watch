@@ -90,3 +90,43 @@ def test_empty_coupling_directory_does_not_impute_zero_values(tmp_path):
     result = load_coupling_cloud(tmp_path, [{"latitude": 0.0, "longitude": 0.0}])
     assert np.isnan(result["coupling_fraction"][0])
     assert np.isnan(result["slip_deficit_mm_yr"][0])
+
+
+
+def test_as_of_usgs_finite_fault_product_is_preferred_over_moment_tensor():
+    event = _feature()
+    event["properties"]["products"]["finite-fault"] = [{
+        "source": "us",
+        "updateTime": 1_700_000_000_000,
+        "properties": {
+            "model-length": "40",
+            "model-width": "18",
+            "model-strike": "90",
+            "model-dip": "30",
+            "model-rake": "90",
+            "model-top": "2",
+            "scalar-moment": "1e19",
+        },
+    }]
+    source = load_source_fault(event, 1_700_000_000_000)
+    assert source is not None
+    assert source["quality"] == "usgs_finite_fault_geometry_uniform_slip"
+    assert source["length_km"] == 40.0
+    assert source["width_km"] == 18.0
+    assert source["finite_fault_product_update_ms"] == 1_700_000_000_000
+
+
+def test_finite_fault_product_updated_after_cutoff_is_not_used():
+    event = _feature(update_time=1_700_000_000_000)
+    event["properties"]["products"]["finite-fault"] = [{
+        "source": "us",
+        "updateTime": 1_700_000_000_001,
+        "properties": {
+            "model-length": "40", "model-width": "18", "model-strike": "90",
+            "model-dip": "30", "model-rake": "90", "scalar-moment": "1e19",
+        },
+    }]
+    source = load_source_fault(event, 1_700_000_000_000)
+    assert source is not None
+    assert source["quality"] == "moment_tensor_plus_empirical_rectangle_proxy"
+    assert "alternative_plane" in source
