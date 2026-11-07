@@ -11,6 +11,9 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import gzip
+import io
+import zipfile
 import json
 import math
 import sys
@@ -37,7 +40,7 @@ USGS_QUERY = "https://earthquake.usgs.gov/fdsnws/event/1/query"
 DAY_MS = 86_400_000
 HORIZONS_DAYS = (1, 3, 7, 14, 30, 90, 180, 365)
 MODEL_NAMES = ("K0", "K1", "K2", "K3", "K4")
-MIN_TRAIN_MAG = 6.0
+MIN_TRAIN_MAG = 6.5
 TARGET_MAG = 6.5
 
 
@@ -251,16 +254,21 @@ def _forecast_snapshot(cutoff: dict[str, Any], catalog: list[dict[str, Any]],
     fitted = fit_spatial_rate_models(cells, counts, training_years, coupling)
 
     n_models, n_horizons, n_cells = len(MODEL_NAMES), len(HORIZONS_DAYS), len(cells)
-    probability = np.full((n_models, n_horizons, n_cells), np.nan, dtype=np.float32)
+    interval_probability = np.full((n_models, n_horizons, n_cells), np.nan, dtype=np.float32)
+    previous_end = 0
     for h_idx, days in enumerate(HORIZONS_DAYS):
+        interval_days = days - previous_end
         for model_idx, model_name in enumerate(("K0", "K1", "K2")):
             if model_name == "K2" and fitted["status"]["K2"] != "ok":
                 continue
-            rate = fitted[model_name]
-            probability[model_idx, h_idx] = probabilities_from_rate(rate, days).astype(np.float32)
+            interval_probability[model_idx, h_idx] = probabilities_from_rate(
+                fitted[model_name], interval_days
+            ).astype(np.float32)
+        previous_end = days
 
     stress = None
-    stress_meta = {"status": "not_applicable_for_calendar_control"}
+    stress_meta: dict[str, Any] = {"status": "not_applicable_for_calendar_control"}
+    k3_base_model = "K2" if fitted["status"]["K2"] == "ok" else "K1"
     if cutoff["kind"] == "major_event_trigger" and detail is not None:
         try:
             stress = calculate_delta_cfs(
@@ -269,6 +277,12 @@ def _forecast_snapshot(cutoff: dict[str, Any], catalog: list[dict[str, Any]],
             )
             if stress is None:
                 stress_meta = {"status": "no_source_mechanism_available_as_of_cutoff"}
+            elif stress["coverage_fraction"] < 0.005:
+                stress_meta = {
+                    "status": "insufficient_receiver_coverage",
+                    "stress_coverage_fraction": stress["coverage_fraction"],
+                }
+                stress = None
             else:
                 stress_meta = {
                     "status": "ok",
@@ -279,25 +293,55 @@ def _forecast_snapshot(cutoff: dict[str, Any], catalog: list[dict[str, Any]],
                     "effective_friction": stress["effective_friction"],
                     "shear_modulus_pa": stress["shear_modulus_pa"],
                     "poisson_ratio": stress["poisson_ratio"],
+                    "receiver_fault_scenarios": "PB2002 boundary-type/orientation scenarios; not mapped fault inventory",
+                    "source_model_warning": (
+                        "Unless a custom finite-fault JSON exists, source is a magnitude-scaled "
+                        "rectangular proxy inferred from a moment tensor, not a measured slip model."
+                    ),
                 }
         except Exception as exc:
             stress_meta = {"status": "calculation_failed", "error": f"{type(exc).__name__}: {exc}"}
 
     if stress is not None:
         cfs = np.nan_to_num(stress["delta_cfs_mpa"], nan=0.0, posinf=0.0, neginf=0.0)
-        base_rate = fitted["K2"] if fitted["status"]["K2"] == "ok" else fitted["K1"]
+        base_rate = fitted[k3_base_model]
+        event_elapsed_days = max(
+            0.0, (cutoff_ms - int(cutoff.get("trigger_origin_ms") or cutoff_ms)) / DAY_MS
+        )
+        previous_end = 0
         for h_idx, days in enumerate(HORIZONS_DAYS):
-            k3 = forecast_k3(base_rate, cfs, days)
-            k4 = forecast_k4(base_rate, cfs, days)
-            probability[3, h_idx] = k3["probability"].astype(np.float32)
-            probability[4, h_idx] = k4["probability"].astype(np.float32)
+            interval_days = days - previous_end
+            k3 = forecast_k3(base_rate, cfs, interval_days)
+            k4 = forecast_k4(
+                base_rate, cfs,
+                event_elapsed_days + previous_end,
+                event_elapsed_days + days,
+            )
+            interval_probability[3, h_idx] = k3["probability"].astype(np.float32)
+            interval_probability[4, h_idx] = k4["probability"].astype(np.float32)
+            previous_end = days
+
+    # Horizons are cumulative probabilities. Consecutive interval risks are
+    # combined as independent increments of the fitted Poisson/rate-state process.
+    probability = np.full_like(interval_probability, np.nan)
+    for model_idx in range(n_models):
+        valid = np.isfinite(interval_probability[model_idx])
+        running_survival = np.ones(n_cells, dtype=np.float64)
+        for h_idx in range(n_horizons):
+            step = interval_probability[model_idx, h_idx].astype(np.float64)
+            finite = np.isfinite(step)
+            running_survival[finite] *= (1.0 - step[finite])
+            probability[model_idx, h_idx, finite] = (1.0 - running_survival[finite]).astype(np.float32)
 
     snapshot_dir = output_dir / "forecast_snapshots"
     snapshot_dir.mkdir(parents=True, exist_ok=True)
     stem = cutoff["cutoff_id"].replace(":", "_").replace("/", "_")
     npz_path = snapshot_dir / f"{stem}.npz"
-    np.savez_compressed(npz_path, probability=probability,
-                        training_counts=counts.astype(np.float32))
+    np.savez_compressed(
+        npz_path, probability=probability,
+        interval_probability=interval_probability,
+        training_counts=counts.astype(np.float32),
+    )
     npz_hash = hashlib.sha256(npz_path.read_bytes()).hexdigest()
     meta = {
         **cutoff,
@@ -305,12 +349,12 @@ def _forecast_snapshot(cutoff: dict[str, Any], catalog: list[dict[str, Any]],
         "forecast_created_utc": datetime.now(timezone.utc).isoformat(),
         "data_cutoff_exclusive": utc_iso(cutoff_ms),
         "training_start_utc": utc_iso(start_train_ms),
-        "training_event_count_m_ge_6": int(training_event_count),
+        "training_event_count_m_ge_6_5": int(training_event_count),
         "training_years": round(training_years, 4),
         "training_model_status": fitted["status"],
         "coupling_coverage_fraction": fitted["coupling_coverage_fraction"],
         "coupling_data_files": coupling.get("files_used", []),
-        "global_annual_rate_m_ge_6": fitted["global_annual_rate"],
+        "global_annual_rate_m_ge_6_5": fitted["global_annual_rate"],
         "catalog_sha256": catalog_digest,
         "catalog_data_window_end_utc": utc_iso(catalog_end_ms),
         "catalog_mode": "current_usgs_comcat_occurrence_time_hindcast",
@@ -320,11 +364,18 @@ def _forecast_snapshot(cutoff: dict[str, Any], catalog: list[dict[str, Any]],
             "cut off at t0; source products are filtered by their current updateTime when present, "
             "but historical product versions are not archived here."
         ),
+        "geophysical_input_mode": "current_coupling_cloud_retrospective" if coupling.get("files_used") else "no_coupling_cloud_data",
         "physical_data_status": stress_meta,
+        "K3_K4_base_rate_model": k3_base_model,
+        "K4_model": "Dieterich rate-and-state response to a static Coulomb stress step; no measured afterslip/viscoelastic stress history is ingested",
         "snapshot_npz": str(npz_path.relative_to(output_dir)),
         "snapshot_sha256": npz_hash,
         "model_names": list(MODEL_NAMES),
         "horizons_days": list(HORIZONS_DAYS),
+        "intervals_days": [
+            [0 if i == 0 else HORIZONS_DAYS[i-1], HORIZONS_DAYS[i]]
+            for i in range(len(HORIZONS_DAYS))
+        ],
         "target_magnitude": TARGET_MAG,
         "training_min_magnitude": MIN_TRAIN_MAG,
         "grid_cell_count": len(cells),
