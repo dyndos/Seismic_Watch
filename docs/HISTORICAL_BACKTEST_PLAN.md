@@ -91,9 +91,9 @@ Compare models on identical cutoffs, targets, spatial partitions, and horizons. 
 
 - **K0 — Statistical baseline:** regional/global event-rate models (Poisson / Gutenberg-Richter, and ETAS where appropriate).
 - **K1 — Plate kinematics:** K0 plus relative plate-motion vector at the event/candidate cell, decomposed into boundary-normal convergence/divergence and boundary-parallel motion.
-- **K2 — Geodetic loading:** K1 plus coupling/locking, slip-deficit rate and strain fields wherever sufficiently documented data exist.
-- **K3 — Coseismic stress transfer:** K2 plus finite-fault source slip and geometry, receiver-fault scenarios, and computed Coulomb stress change with uncertainty.
-- **K4 — Postseismic/transient terms:** K3 plus afterslip, viscoelastic relaxation, pore-pressure or dynamic effects only where a defensible time-dependent dataset/model exists.
+- **K2 — Geodetic loading:** K1 plus Coupling Cloud coupling/slip-deficit variables where compatible NetCDF coverage exists. Current Coupling Cloud data are modern and are scored as retrospective geophysics, not as historical as-of information.
+- **K3 — Coseismic stress transfer:** K2 (or K1 if coupling coverage is unavailable) plus as-of USGS finite-fault product geometry where available, otherwise a labelled moment-tensor rectangle proxy; CUTDE half-space stress calculation; explicit source nodal-plane and receiver-fault scenarios.
+- **K4 — Rate-and-state response:** K3 plus a Dieterich (1994) time-dependent response to the coseismic ΔCFS step. The model accounts for elapsed time since the triggering earthquake, but does not yet ingest measured afterslip or viscoelastic stress histories.
 
 Do not use total plate mass as a direct predictor in the first model. At plate-tectonic timescales inertia is negligible in the force balance; local fault loading and stress transfer are better represented by relative plate motion, coupling/slip deficit, source rupture slip, receiver-fault geometry and material parameters. A plate-wide mass figure does not tell us the local stress or which fault is closer to failure. Slab negative buoyancy / slab pull may be explored later as a separate geodynamic feature where geometry and density/thermal structure are available.
 
@@ -116,4 +116,8 @@ Do not use only a list of famous large earthquakes. Include regularly sampled ne
 
 ## First implementation boundary
 
-The first implementation should be a dry-run/backtest tool on a feature branch. It must not change production behavior or imply deterministic prediction of an earthquake's exact time and place. First make temporal data separation and spatial outputs testable; then add the physical feature families in the K0–K4 sequence.
+The first implementation is in `research/` and runs offline after downloading and snapshotting its inputs. It does not change the Next.js production code. The command `python -m research.run_blind_test` builds an equal-area grid, freezes all forecast probability surfaces before scoring outcomes, then produces per-cutoff and aggregate JSON/CSV outputs. It defaults to 2022–2023 M>=6.5 triggers, monthly calendar controls, 500-km equal-area cells, and horizons of 1, 3, 7, 14, 30, 90, 180 and 365 days. It records both cumulative probabilities and non-overlapping interval probabilities.
+
+Important classification: the current USGS ComCat endpoint is not a historical catalog archive. The runner therefore labels its default evaluation an **occurrence-time hindcast**, not a strict replay of what was publicly known at each cutoff: later event additions/revisions can be present in today's query. Current Coupling Cloud products are an additional retrospective-modern-data layer. Do not combine K0/K1 and K2–K4 into one unqualified "blind accuracy" number. Source-event product payloads and the queried catalog are compressed and hashed alongside the frozen forecasts so that this exact run can be inspected later.
+
+It must not change production behavior or imply deterministic prediction of an earthquake's exact time and place. The first validation target is whether K1–K4 improve spatial and temporal skill over K0; any physical feature with insufficient coverage is marked unscored instead of imputed.
