@@ -366,7 +366,7 @@ def calculate_delta_cfs(feature: dict[str, Any], as_of_ms: int,
                         custom_fault_dir: Path | str | None = None,
                         receiver_depth_km: float = 10.0,
                         max_distance_km: float = 2500.0) -> dict[str, Any] | None:
-    """Compute a stress-transfer scenario map using CUTDE's elastic half-space TDEs."""
+    """Compute scenario ΔCFS fields using CUTDE elastic half-space dislocations."""
     source = load_source_fault(feature, as_of_ms, custom_fault_dir)
     if source is None:
         return None
@@ -381,7 +381,6 @@ def calculate_delta_cfs(feature: dict[str, Any], as_of_ms: int,
         "+datum=WGS84 +units=m +no_defs"
     )
     transformer = Transformer.from_crs("EPSG:4326", local_crs, always_xy=True)
-    triangles, slips = _rectangle_triangles(source, transformer)
     lons = np.asarray([c["longitude"] for c in cells], dtype=float)
     lats = np.asarray([c["latitude"] for c in cells], dtype=float)
     xs, ys = transformer.transform(lons, lats)
@@ -389,15 +388,25 @@ def calculate_delta_cfs(feature: dict[str, Any], as_of_ms: int,
     distances = np.hypot(xs, ys) / 1000.0
     active = distances <= max_distance_km
     points = np.column_stack([xs, ys, np.full(len(cells), -receiver_depth_km * 1000.0)])
-    strain = np.zeros((len(cells), 6), dtype=float)
-    if np.any(active):
-        strain[active] = halfspace.strain_free(
-            points[active].astype(np.float64),
-            triangles.astype(np.float64),
-            slips.astype(np.float64),
-            POISSON,
-        )
-    stress = halfspace.strain_to_stress(strain, MU_PA, POISSON)
+
+    # Alternative CMT nodal planes are separate mutually exclusive source
+    # hypotheses; stress fields are not added together.
+    source_scenarios = [source]
+    alt = source.get("alternative_plane")
+    if alt:
+        source_scenarios.append({**source, **alt})
+    stress_scenarios: list[np.ndarray] = []
+    for source_scenario in source_scenarios:
+        triangles, slips = _rectangle_triangles(source_scenario, transformer)
+        strain = np.zeros((len(cells), 6), dtype=float)
+        if np.any(active):
+            strain[active] = halfspace.strain_free(
+                points[active].astype(np.float64),
+                triangles.astype(np.float64),
+                slips.astype(np.float64),
+                POISSON,
+            )
+        stress_scenarios.append(halfspace.strain_to_stress(strain, MU_PA, POISSON))
 
     cfs = np.full(len(cells), np.nan, dtype=float)
     cfs_p10 = np.full(len(cells), np.nan, dtype=float)
@@ -405,16 +414,21 @@ def calculate_delta_cfs(feature: dict[str, Any], as_of_ms: int,
     for i, cell in enumerate(cells):
         if not active[i]:
             continue
-        scenarios = _receiver_scenarios(cell, source)
-        values = np.asarray([
-            resolve_coulomb(stress[i], strike, dip, rake)
-            for strike, dip, rake in scenarios
-        ], dtype=float)
-        cfs[i] = float(np.median(values))
-        cfs_p10[i] = float(np.percentile(values, 10))
-        cfs_p90[i] = float(np.percentile(values, 90))
+        values: list[float] = []
+        for source_scenario, stress in zip(source_scenarios, stress_scenarios):
+            receivers = _receiver_scenarios(cell, source_scenario)
+            values.extend(
+                resolve_coulomb(stress[i], strike, dip, rake)
+                for strike, dip, rake in receivers
+            )
+        array = np.asarray(values, dtype=float)
+        cfs[i] = float(np.median(array))
+        cfs_p10[i] = float(np.percentile(array, 10))
+        cfs_p90[i] = float(np.percentile(array, 90))
     return {
         "source": source,
+        "source_plane_scenarios": len(source_scenarios),
+        "receiver_scenario_ensemble": True,
         "delta_cfs_mpa": cfs,
         "delta_cfs_p10_mpa": cfs_p10,
         "delta_cfs_p90_mpa": cfs_p90,
@@ -424,6 +438,7 @@ def calculate_delta_cfs(feature: dict[str, Any], as_of_ms: int,
         "effective_friction": EFFECTIVE_FRICTION,
         "shear_modulus_pa": MU_PA,
         "poisson_ratio": POISSON,
+        "stress_sign_convention": "tension-positive; positive ΔCFS promotes receiver-fault failure",
     }
 
 
