@@ -1,0 +1,92 @@
+import numpy as np
+
+from research.physical import (
+    _extract_moment_tensor, _fault_vectors, dieterich_cumulative_count,
+    load_coupling_cloud, load_source_fault, rate_state_ensemble,
+    resolve_coulomb,
+)
+
+
+def _feature(update_time=1_700_000_000_000):
+    return {
+        "id": "test-event",
+        "properties": {
+            "mag": 7.0,
+            "time": 1_700_000_000_000,
+            "products": {
+                "moment-tensor": [{
+                    "source": "us",
+                    "updateTime": update_time,
+                    "properties": {
+                        "nodal-plane-1-strike": "90",
+                        "nodal-plane-1-dip": "45",
+                        "nodal-plane-1-rake": "90",
+                        "nodal-plane-2-strike": "270",
+                        "nodal-plane-2-dip": "45",
+                        "nodal-plane-2-rake": "90",
+                        "scalar-moment": "1e19",
+                    },
+                }]
+            },
+        },
+        "geometry": {"coordinates": [0.0, 0.0, 10.0]},
+    }
+
+
+def test_moment_tensor_product_is_filtered_by_as_of_time():
+    event = _feature()
+    assert _extract_moment_tensor(event, 1_699_999_999_999) is None
+    assert _extract_moment_tensor(event, 1_700_000_000_000)["strike"] == 90.0
+
+
+def test_source_proxy_uses_moment_tensor_and_marks_its_quality():
+    source = load_source_fault(_feature(), 1_700_000_000_000)
+    assert source is not None
+    assert source["quality"] == "moment_tensor_plus_empirical_rectangle_proxy"
+    assert source["length_km"] > 0
+    assert source["width_km"] > 0
+    assert source["slip_m"] > 0
+
+
+def test_fault_basis_is_orthonormal():
+    strike, dip, slip = _fault_vectors(125.0, 35.0, 90.0)
+    assert np.isclose(np.linalg.norm(strike), 1.0)
+    assert np.isclose(np.linalg.norm(dip), 1.0)
+    assert np.isclose(np.dot(strike, dip), 0.0)
+    assert np.isclose(np.linalg.norm(slip), 1.0)
+
+
+def test_coulomb_shear_changes_sign_when_rake_reverses():
+    stress = np.array([0.0, 0.0, 0.0, 2.0e6, 0.0, 0.0])
+    forward = resolve_coulomb(stress, 0.0, 90.0, 0.0)
+    reverse = resolve_coulomb(stress, 0.0, 90.0, 180.0)
+    assert np.isclose(forward, -reverse)
+
+
+def test_dieterich_zero_stress_reduces_to_background_count():
+    rate = np.array([0.01, 0.02])
+    observed = dieterich_cumulative_count(rate, 0.0, 100.0, 0.1, 90.0)
+    assert np.allclose(observed, rate * 100.0, rtol=1e-10, atol=1e-12)
+
+
+def test_positive_stress_advances_rate_and_negative_stress_suppresses_it():
+    rate = np.array([0.01])
+    baseline = dieterich_cumulative_count(rate, 0.0, 30.0, 0.1, 90.0)
+    positive = dieterich_cumulative_count(rate, 0.1, 30.0, 0.1, 90.0)
+    negative = dieterich_cumulative_count(rate, -0.1, 30.0, 0.1, 90.0)
+    assert positive[0] > baseline[0] > negative[0]
+
+
+def test_rate_state_interval_counts_are_nonnegative_and_time_dependent():
+    result = rate_state_ensemble(
+        np.array([0.01]), np.array([0.1]), 7.0, 14.0
+    )
+    assert result["expected_count_median"][0] > 0
+    assert result["expected_count_p10"][0] <= result["expected_count_median"][0]
+    assert result["expected_count_p90"][0] >= result["expected_count_median"][0]
+
+
+def test_empty_coupling_directory_does_not_impute_zero_values(tmp_path):
+    result = load_coupling_cloud(tmp_path, [{"latitude": 0.0, "longitude": 0.0}])
+    assert np.isnan(result["coupling_fraction"][0])
+    assert np.isnan(result["slip_deficit_mm_yr"][0])
