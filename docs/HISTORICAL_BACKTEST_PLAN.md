@@ -87,14 +87,19 @@ Do not tune these definitions after inspecting the test outcomes.
 
 ## Model tracks
 
-Compare models on identical cutoffs, targets, spatial partitions, and horizons:
+Compare models on identical cutoffs, targets, spatial partitions, and horizons. The physical-model input definitions, source datasets and caveats are documented separately in [PHYSICAL_MODEL_DATA.md](./PHYSICAL_MODEL_DATA.md).
 
-- A: historical regional frequency baseline (Poisson / Gutenberg-Richter, as appropriate).
-- B: A plus plate/boundary association.
-- C: B plus focal-mechanism and fault-geometry features, only where data coverage is adequate.
-- D: C plus a separately validated physical stress-transfer model (for example Coulomb stress change). Do not describe plate proximity or slip azimuth alone as Coulomb stress modelling.
+- **K0 — Statistical baseline:** regional/global event-rate models (Poisson / Gutenberg-Richter, and ETAS where appropriate).
+- **K1 — Plate kinematics:** K0 plus relative plate-motion vector at the event/candidate cell, decomposed into boundary-normal convergence/divergence and boundary-parallel motion.
+- **K2 — Geodetic loading:** K1 plus coupling/locking, slip-deficit rate and strain fields wherever sufficiently documented data exist.
+- **K3 — Coseismic stress transfer:** K2 plus finite-fault source slip and geometry, receiver-fault scenarios, and computed Coulomb stress change with uncertainty.
+- **K4 — Postseismic/transient terms:** K3 plus afterslip, viscoelastic relaxation, pore-pressure or dynamic effects only where a defensible time-dependent dataset/model exists.
 
-Also report simple reference forecasts. A complex model is useful only if it improves on these baselines out of sample, both temporally and spatially.
+Do not use total plate mass as a direct predictor in the first model. At plate-tectonic timescales inertia is negligible in the force balance; local fault loading and stress transfer are better represented by relative plate motion, coupling/slip deficit, source rupture slip, receiver-fault geometry and material parameters. A plate-wide mass figure does not tell us the local stress or which fault is closer to failure. Slab negative buoyancy / slab pull may be explored later as a separate geodynamic feature where geometry and density/thermal structure are available.
+
+The direction of plate motion at the triggering event is useful only when defined as a relative velocity vector between the plates and resolved into local boundary-normal and boundary-parallel components. It is not, by itself, the direction of subsequent stress transfer. For the latter, use the finite rupture geometry/slip and receiver faults.
+
+Retain a new physical feature family only if an ablation test demonstrates repeatable out-of-sample improvement beyond the simpler model, across multiple regions and cutoffs. Report physical-data coverage and uncertainty separately; do not let a model appear better merely because it is evaluated on a small set of well-studied earthquakes.
 
 ## Scoring
 
@@ -111,4 +116,4 @@ Do not use only a list of famous large earthquakes. Include regularly sampled ne
 
 ## First implementation boundary
 
-The first implementation should be a dry-run/backtest tool on a feature branch. It must not change production behavior or imply deterministic prediction of an earthquake's exact time and place. First make temporal data separation and spatial outputs testable; then add the scoring and model comparisons.
+The first implementation should be a dry-run/backtest tool on a feature branch. It must not change production behavior or imply deterministic prediction of an earthquake's exact time and place. First make temporal data separation and spatial outputs testable; then add the physical feature families in the K0–K4 sequence.
