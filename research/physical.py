@@ -199,9 +199,79 @@ def _magnitude_scaled_rectangle(feature: dict[str, Any], mechanism: dict[str, fl
     }
 
 
+def _extract_finite_fault_geometry(feature: dict[str, Any], as_of_ms: int) -> dict[str, Any] | None:
+    """Use the latest finite-fault product geometry available by the forecast cutoff.
+
+    USGS product properties expose model length/width/orientation and scalar
+    moment. The geometry is finite-fault-derived, but in the absence of a
+    parsed subfault slip grid this adapter assumes uniform average slip and
+    labels that approximation explicitly.
+    """
+    products = (feature.get("properties") or {}).get("products") or {}
+    candidates = [
+        p for p in (products.get("finite-fault") or [])
+        if p.get("updateTime") is not None and int(p["updateTime"]) <= as_of_ms
+    ]
+    candidates.sort(
+        key=lambda p: (int(p.get("preferredWeight") or 0), int(p.get("updateTime") or 0)),
+        reverse=True,
+    )
+    if not candidates:
+        return None
+    props = candidates[0].get("properties") or {}
+    length = _parse_float(props, "model-length")
+    width = _parse_float(props, "model-width")
+    strike = _parse_float(props, "model-strike")
+    dip = _parse_float(props, "model-dip")
+    rake = _parse_float(props, "model-rake")
+    if not all(v is not None and v > 0 for v in (length, width, dip)) or strike is None or rake is None:
+        return None
+    if not (1.0 <= length <= 2500.0 and 1.0 <= width <= 300.0 and 0.0 < dip <= 90.0):
+        return None
+    event_props = feature.get("properties") or {}
+    coords = (feature.get("geometry") or {}).get("coordinates") or [0, 0, 10]
+    lon = _parse_float(props, "hypocenter-lon")
+    lat = _parse_float(props, "hypocenter-lat")
+    if lon is None:
+        lon = float(coords[0])
+    if lat is None:
+        lat = float(coords[1])
+    top_km = _parse_float(props, "model-top")
+    depth = _parse_float(props, "hypocenter-z")
+    if depth is None:
+        depth = float(coords[2] if len(coords) > 2 else 10.0)
+    if top_km is not None:
+        depth = top_km + 0.5 * width * math.sin(math.radians(dip))
+    moment = _parse_float(props, "scalar-moment")
+    if moment is None:
+        moment = _parse_float(event_props, "moment")
+    if moment is None or moment <= 0:
+        maximum_slip = _parse_float(props, "maximum-slip")
+        if maximum_slip is None or maximum_slip <= 0:
+            return None
+        slip = maximum_slip
+        slip_method = "maximum-slip-product-property_not_average"
+    else:
+        slip = moment / (MU_PA * (length * 1000.0) * (width * 1000.0))
+        slip_method = "uniform_average_from_scalar_moment"
+    return {
+        "event_id": str(feature.get("id") or "unknown"),
+        "longitude": lon, "latitude": lat, "depth_km": max(0.1, float(depth)),
+        "length_km": float(length), "width_km": float(width),
+        "strike_deg": float(strike) % 360.0,
+        "dip_deg": float(dip), "rake_deg": float(rake),
+        "slip_m": float(slip),
+        "scalar_moment_nm": moment,
+        "finite_fault_product_update_ms": int(candidates[0]["updateTime"]),
+        "finite_fault_product_source": candidates[0].get("source", "unknown"),
+        "slip_method": slip_method,
+        "quality": "usgs_finite_fault_geometry_uniform_slip",
+    }
+
+
 def load_source_fault(feature: dict[str, Any], as_of_ms: int,
                       custom_fault_dir: Path | str | None = None) -> dict[str, Any] | None:
-    """Load a normalized finite-fault file, otherwise a dated moment tensor proxy."""
+    """Prefer a supplied finite fault, then an as-of USGS finite fault, then MT proxy."""
     event_id = str(feature.get("id") or "unknown")
     if custom_fault_dir:
         candidate = Path(custom_fault_dir) / f"{event_id}.json"
@@ -210,12 +280,26 @@ def load_source_fault(feature: dict[str, Any], as_of_ms: int,
             payload["quality"] = "user_supplied_finite_fault"
             payload["event_id"] = event_id
             return payload
+
+    finite_fault = _extract_finite_fault_geometry(feature, as_of_ms)
+    if finite_fault is not None:
+        return finite_fault
+
     mechanism = _extract_moment_tensor(feature, as_of_ms)
     if mechanism is None:
         return None
     source = _magnitude_scaled_rectangle(feature, mechanism)
     source["event_id"] = event_id
     source["mechanism_product_update_ms"] = mechanism["product_update_ms"]
+    # The moment tensor has two mathematically admissible nodal planes. Unless
+    # a finite-fault product resolves the causative plane, preserve both as
+    # alternative source scenarios rather than silently treating NP1 as truth.
+    if mechanism.get("strike2") is not None and mechanism.get("dip2") is not None and mechanism.get("rake2") is not None:
+        source["alternative_plane"] = {
+            "strike_deg": float(mechanism["strike2"]),
+            "dip_deg": float(mechanism["dip2"]),
+            "rake_deg": float(mechanism["rake2"]),
+        }
     source["quality"] = "moment_tensor_plus_empirical_rectangle_proxy"
     return source
 
