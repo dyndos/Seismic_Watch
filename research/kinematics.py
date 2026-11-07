@@ -131,6 +131,7 @@ def kinematic_features(lat: float, lon: float,
         "plate_a": boundary["plate_a"] if boundary else None,
         "plate_b": boundary["plate_b"] if boundary else None,
         "boundary_name": boundary["name"] if boundary else None,
+        "boundary_tangent_azimuth_deg": boundary["tangent_azimuth_deg"] if boundary else None,
         "boundary_type": boundary["boundary_type"] if boundary else None,
     }
     if boundary is None or boundary["distance_km"] > max_boundary_distance_km:
