@@ -25,28 +25,28 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _find_coord(ds: Any, names: tuple[str, ...]) -> str | None:
+    available = {str(k).lower(): str(k) for k in list(ds.coords) + list(ds.variables)}
     for name in names:
-        if name in ds.coords:
-            return name
-        if name in ds.variables and ds[name].ndim == 1:
-            return name
+        actual = available.get(name.lower())
+        if actual is None:
+            continue
+        candidate = ds[actual]
+        if actual in ds.coords or candidate.ndim == 1:
+            return actual
     return None
 
 
 def load_coupling_cloud(coupling_dir: Path | str | None,
                         cells: list[dict[str, Any]]) -> dict[str, Any]:
-    """Sample downloaded Coupling Cloud NetCDF files at equal-area cell centres.
-
-    No value is imputed as zero. Coverage is returned explicitly. Files should
-    be downloaded from https://couplingcloud.ucsd.edu/download/all_models and
-    extracted under research/data/coupling_cloud/.
-    """
+    """Sample Coupling Cloud NetCDF grids; preserve missing coverage and units."""
     n = len(cells)
     result = {
         "coupling_fraction": np.full(n, np.nan),
         "slip_deficit_mm_yr": np.full(n, np.nan),
         "model_count": np.zeros(n, dtype=int),
         "files_used": [],
+        "variables_used": [],
+        "unit_rejections": [],
     }
     if not coupling_dir:
         return result
@@ -70,12 +70,10 @@ def load_coupling_cloud(coupling_dir: Path | str | None,
                 lon_name = _find_coord(ds, ("longitude", "lon", "x"))
                 if not lat_name or not lon_name:
                     continue
-                lat_coord = ds[lat_name]
-                lon_coord = ds[lon_name]
+                lat_coord, lon_coord = ds[lat_name], ds[lon_name]
                 if lat_coord.ndim != 1 or lon_coord.ndim != 1:
                     continue
-                work = ds.sortby(lat_name)
-                work = work.sortby(lon_name)
+                work = ds.sortby(lat_name).sortby(lon_name)
                 lon_values = np.asarray(work[lon_name].values, dtype=float)
                 if np.nanmin(lon_values) >= 0 and np.nanmax(lon_values) > 180:
                     query_lons = lons % 360.0
@@ -88,7 +86,7 @@ def load_coupling_cloud(coupling_dir: Path | str | None,
                 sampled_any = False
                 for var in work.data_vars:
                     key = var.lower().replace("-", "_").replace(" ", "_")
-                    if "uncert" in key or "std" in key or "sigma" in key:
+                    if any(token in key for token in ("uncert", "std", "sigma", "error")):
                         continue
                     if "coupl" in key:
                         target = "coupling_fraction"
@@ -99,16 +97,37 @@ def load_coupling_cloud(coupling_dir: Path | str | None,
                     da = work[var].squeeze(drop=True)
                     if lat_name not in da.dims or lon_name not in da.dims or da.ndim != 2:
                         continue
-                    values = np.asarray(da.interp(query, method="nearest").values, dtype=float).reshape(-1)
+                    values = np.asarray(
+                        da.interp(query, method="nearest").values, dtype=float
+                    ).reshape(-1)
                     valid = np.isfinite(values)
+                    units = str(da.attrs.get("units") or "").strip().lower().replace(" ", "")
                     if target == "coupling_fraction":
-                        # Some published models are percent (0..100), others fraction (0..1).
                         if np.nanmax(values[valid], initial=0) > 1.5:
                             values[valid] = values[valid] / 100.0
                         values = np.clip(values, 0.0, 1.0)
+                    else:
+                        # Never label a rate as mm/yr unless its units can be converted.
+                        conversion = {
+                            "mm/yr": 1.0, "mm/year": 1.0, "mm/a": 1.0,
+                            "cm/yr": 10.0, "cm/year": 10.0, "cm/a": 10.0,
+                            "m/yr": 1000.0, "m/year": 1000.0, "m/a": 1000.0,
+                            "mm/yr-1": 1.0, "cm/yr-1": 10.0, "m/yr-1": 1000.0,
+                        }
+                        factor = conversion.get(units)
+                        if factor is None:
+                            result["unit_rejections"].append({
+                                "file": str(file), "variable": str(var), "units": units or None,
+                            })
+                            continue
+                        values[valid] *= factor
                     sums[target][valid] += values[valid]
                     counts[target][valid] += 1
                     sampled_any = True
+                    result["variables_used"].append({
+                        "file": str(file), "variable": str(var), "target": target,
+                        "original_units": units or None,
+                    })
                 if sampled_any:
                     result["files_used"].append(str(file))
         except Exception:
