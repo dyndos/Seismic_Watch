@@ -26,8 +26,12 @@ def load_morvel(path: Path | None = None) -> dict[str, dict[str, Any]]:
     return {p["code"].upper(): p for p in payload["plates"]}
 
 
+PB2002_TO_MORVEL = {"SO": "SM", "YA": "YZ"}
+
+
 def _plate_omega(code: str, plates: dict[str, dict[str, Any]]) -> np.ndarray | None:
-    item = plates.get(str(code).upper())
+    normalized = PB2002_TO_MORVEL.get(str(code).upper(), str(code).upper())
+    item = plates.get(normalized)
     if item is None:
         return None
     lat = math.radians(float(item["pole_latitude_deg"]))
