@@ -47,31 +47,37 @@
 
 ## Запуск
 
-### Вариант 1 — Docker (все в один контейнерный стек)
+### Вариант 1 — Docker Compose (рекомендуется)
 
 ```bash
-git clone <your-fork> && cd seismic-watch
-docker compose up --build
+git clone https://github.com/dyndos/Seismic_Watch.git
+cd Seismic_Watch
+docker compose up --build -d
 # → http://localhost:3000
 ```
 
-PostgreSQL поднимается в соседнем контейнере; таблицы и сид объектов компании
-создаются автоматически при первом запросе.
+PostgreSQL поднимается в соседнем контейнере. Таблицы и начальные данные
+создаются автоматически при первом запросе. Остановка: `docker compose down`.
+База сохраняется в volume; для полного сброса данных используется
+`docker compose down -v`.
 
-### Вариант 2 — локально (Node 20+ и PostgreSQL)
+### Вариант 2 — локально (Node.js 22 и PostgreSQL)
 
 ```bash
 npm install
-cp .env.example .env            # укажите свой DATABASE_URL
-npm run build && npm start      # → http://localhost:3000
+# создайте .env и укажите DATABASE_URL=postgresql://postgres:postgres@localhost:5432/app_db
+npm run build && npm start
 # для разработки: npm run dev
 ```
+
+В репозитории нет .env.example и package-lock.json; используйте `npm install`.
+Dockerfile настроен на сборку без заранее созданного lock-файла.
 
 Нужен доступ в интернет: живые данные подтягиваются из USGS. Каталог границ плит
 зашит в репозиторий (`public/data/plates.geojson`).
 
-Быстрый старт: откройте кейс **«Турция, Кахраманмараш M7.8»** — первый расчет
-занимает 5–60 с (мировой каталог M≥6 за 20 лет), далее — мгновенно из кэша БД.
+Подробная инструкция по запуску веб-приложения и исследовательского конвейера K0–K4:
+[`docs/RUN_GUIDE_RU.md`](docs/RUN_GUIDE_RU.md).
 
 ## API
 
