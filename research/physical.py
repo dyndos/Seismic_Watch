@@ -194,7 +194,7 @@ def load_coupling_cloud(
                         }
                         factor = conversion.get(units_compact)
                         unit_inference = None
-                        if factor is None and any(token in key for token in (
+                        if factor is None and not units_compact and any(token in key for token in (
                             "_mm_yr", "_mm_year", "_mm_per_year",
                         )):
                             # Explicit variable-name suffix is an unambiguous unit.
