@@ -106,12 +106,21 @@ def fit_spatial_rate_models(cells: list[dict[str, Any]], counts: np.ndarray,
     coupling_values = np.asarray(coupling.get("coupling_fraction", np.full(n, np.nan)), dtype=float)
     slip_values = np.asarray(coupling.get("slip_deficit_mm_yr", np.full(n, np.nan)), dtype=float)
     coverage = np.isfinite(coupling_values) | np.isfinite(slip_values)
-    if int(np.sum(coverage)) >= max(30, int(0.02 * n)):
+    coverage_cells = int(np.sum(coverage))
+    coverage_fraction = float(np.mean(coverage))
+    # Coupling Cloud is regional by design. Do not discard useful subduction
+    # observations because the global-grid coverage is below 2%.
+    minimum_coverage_cells = max(8, int(0.005 * n))
+    if coverage_cells >= minimum_coverage_cells:
         k2_features = _feature_array(cells, coupling, use_coupling=True)
-        k2, k2_status = fit(k2_features, alpha=8.0)
+        k2, k2_status = fit(
+            k2_features, alpha=20.0 if coverage_fraction < 0.05 else 8.0
+        )
+        if k2_status == "ok" and coverage_fraction < 0.05:
+            k2_status = "ok_partial_coverage"
     else:
         k2 = k1.copy()
-        k2_status = "not_scored_no_coupling_coverage"
+        k2_status = "not_scored_insufficient_coupling_coverage"
 
     return {
         "K0": k0,
@@ -122,7 +131,8 @@ def fit_spatial_rate_models(cells: list[dict[str, Any]], counts: np.ndarray,
             "K1": k1_status,
             "K2": k2_status,
         },
-        "coupling_coverage_fraction": float(np.mean(coverage)),
+        "coupling_coverage_fraction": coverage_fraction,
+        "coupling_covered_cells": coverage_cells,
         "training_event_count": int(np.sum(counts)),
         "global_annual_rate": global_rate,
     }

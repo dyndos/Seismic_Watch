@@ -36,6 +36,7 @@ from research.modeling import (
     probabilities_from_rate, count_training_events,
 )
 from research.physical import calculate_delta_cfs, load_coupling_cloud
+from research.gcmt import attach_gcmt_solution, download_gcmt_catalog, match_gcmt_solutions
 
 USGS_QUERY = "https://earthquake.usgs.gov/fdsnws/event/1/query"
 DAY_MS = 86_400_000
@@ -106,36 +107,59 @@ def _event_mag(feature: dict[str, Any]) -> float:
     return float(value) if value is not None else float("-inf")
 
 
-def select_cutoffs(catalog: list[dict[str, Any]], start_year: int, end_year: int,
-                   max_triggers: int, include_controls: bool) -> list[dict[str, Any]]:
+def select_cutoffs(
+    catalog: list[dict[str, Any]],
+    start_year: int,
+    end_year: int,
+    max_triggers: int,
+    include_controls: bool,
+    gcmt_by_event: dict[str, dict[str, Any]],
+    catalog_end_ms: int,
+) -> list[dict[str, Any]]:
+    """Select mechanism-backed triggers with complete, common outcome windows."""
     start_ms = int(datetime(start_year, 1, 1, tzinfo=timezone.utc).timestamp() * 1000)
     end_ms = int(datetime(end_year + 1, 1, 1, tzinfo=timezone.utc).timestamp() * 1000)
     candidates = [
-        e for e in catalog
-        if start_ms <= _event_time(e) < end_ms and _event_mag(e) >= TARGET_MAG
+        event for event in catalog
+        if start_ms <= _event_time(event) < end_ms
+        and _event_mag(event) >= TARGET_MAG
+        and str(event.get("id") or "") in gcmt_by_event
     ]
     candidates.sort(key=_event_time)
-    if max_triggers > 0 and len(candidates) > max_triggers:
-        # Deterministic evenly spaced sampling over the whole predeclared interval.
-        indexes = np.linspace(0, len(candidates) - 1, max_triggers, dtype=int)
-        candidates = [candidates[int(i)] for i in indexes]
 
-    cutoffs: list[dict[str, Any]] = []
+    triggers = []
     for feature in candidates:
         origin_ms = _event_time(feature)
-        cutoff_ms = origin_ms + 7 * DAY_MS
-        cutoffs.append({
+        solution = gcmt_by_event[str(feature.get("id") or "")]
+        solution_ms = int(solution["solution_update_ms"])
+        cutoff_ms = max(origin_ms + 7 * DAY_MS, solution_ms)
+        if cutoff_ms + max(HORIZONS_DAYS) * DAY_MS > catalog_end_ms:
+            continue
+        triggers.append({
             "cutoff_id": f"trigger_{feature.get('id')}",
             "kind": "major_event_trigger",
             "trigger_event_id": feature.get("id"),
             "trigger_origin_ms": origin_ms,
             "cutoff_ms": cutoff_ms,
-            "cutoff_rule": "origin_time_plus_7_days",
+            "cutoff_rule": "max(origin_time_plus_7_days, GCMT_analysis_timestamp)",
+            "source_solution_catalog": "Global CMT NDK",
+            "source_solution_name": solution.get("event_name"),
+            "source_solution_update_ms": solution_ms,
+            "source_solution_update_utc": utc_iso(solution_ms),
+            "source_solution_delay_days": round((solution_ms - origin_ms) / DAY_MS, 3),
         })
+
+    if max_triggers > 0 and len(triggers) > max_triggers:
+        positions = np.linspace(0, len(triggers) - 1, max_triggers, dtype=int)
+        triggers = [triggers[int(index)] for index in positions]
+
+    cutoffs = list(triggers)
     if include_controls:
         for year in range(start_year, end_year + 1):
             for month in range(1, 13):
                 cutoff_ms = int(datetime(year, month, 1, tzinfo=timezone.utc).timestamp() * 1000)
+                if cutoff_ms + max(HORIZONS_DAYS) * DAY_MS > catalog_end_ms:
+                    continue
                 cutoffs.append({
                     "cutoff_id": f"control_{year}-{month:02d}-01",
                     "kind": "calendar_control",
@@ -143,11 +167,14 @@ def select_cutoffs(catalog: list[dict[str, Any]], start_year: int, end_year: int
                     "trigger_origin_ms": None,
                     "cutoff_ms": cutoff_ms,
                     "cutoff_rule": "first_day_of_month_00_utc",
+                    "source_solution_catalog": None,
+                    "source_solution_name": None,
+                    "source_solution_update_ms": None,
+                    "source_solution_update_utc": None,
+                    "source_solution_delay_days": None,
                 })
-    dedup = {}
-    for item in cutoffs:
-        dedup[item["cutoff_id"]] = item
-    return sorted(dedup.values(), key=lambda c: c["cutoff_ms"])
+    unique = {item["cutoff_id"]: item for item in cutoffs}
+    return sorted(unique.values(), key=lambda item: item["cutoff_ms"])
 
 
 def assign_outcomes_to_grid(events: list[dict[str, Any]],
@@ -260,7 +287,7 @@ def _forecast_snapshot(cutoff: dict[str, Any], catalog: list[dict[str, Any]],
     for h_idx, days in enumerate(HORIZONS_DAYS):
         interval_days = days - previous_end
         for model_idx, model_name in enumerate(("K0", "K1", "K2")):
-            if model_name == "K2" and fitted["status"]["K2"] != "ok":
+            if model_name == "K2" and not str(fitted["status"]["K2"]).startswith("ok"):
                 continue
             interval_probability[model_idx, h_idx] = probabilities_from_rate(
                 fitted[model_name], interval_days
@@ -269,7 +296,7 @@ def _forecast_snapshot(cutoff: dict[str, Any], catalog: list[dict[str, Any]],
 
     stress = None
     stress_meta: dict[str, Any] = {"status": "not_applicable_for_calendar_control"}
-    k3_base_model = "K2" if fitted["status"]["K2"] == "ok" else "K1"
+    k3_base_model = "K2" if str(fitted["status"]["K2"]).startswith("ok") else "K1"
     if cutoff["kind"] == "major_event_trigger" and detail is not None:
         try:
             stress = calculate_delta_cfs(
@@ -361,6 +388,12 @@ def _forecast_snapshot(cutoff: dict[str, Any], catalog: list[dict[str, Any]],
         "training_years": round(training_years, 4),
         "training_model_status": fitted["status"],
         "coupling_coverage_fraction": fitted["coupling_coverage_fraction"],
+        "coupling_covered_cells": fitted.get("coupling_covered_cells"),
+        "coupling_slip_deficit_coverage_fraction": coupling.get("slip_deficit_coverage_fraction"),
+        "coupling_any_physical_coverage_fraction": coupling.get("any_physical_coverage_fraction"),
+        "coupling_variables_used": coupling.get("variables_used", []),
+        "coupling_unit_rejections": coupling.get("unit_rejections", []),
+        "coupling_unsupported_grids": coupling.get("unsupported_grids", []),
         "coupling_data_files": coupling.get("files_used", []),
         "global_annual_rate_m_ge_6_5": fitted["global_annual_rate"],
         "catalog_sha256": catalog_digest,
@@ -418,11 +451,54 @@ def download_coupling_cloud(destination: Path) -> Path:
 def run_blind_test(args: argparse.Namespace) -> Path:
     output_dir = Path(args.output).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    print("[1/5] Downloading USGS ComCat catalogue (M>=6.5, 2000-2025)...", flush=True)
-    catalog = fetch_catalog("2000-01-01", "2025-01-01", MIN_TRAIN_MAG)
+    catalog_start = "2000-01-01"
+    catalog_end = "2026-01-01"
+    print("[1/6] Downloading USGS ComCat catalogue (M>=6.5, 2000-2026)...", flush=True)
+    catalog = fetch_catalog(catalog_start, catalog_end, MIN_TRAIN_MAG)
     catalog.sort(key=_event_time)
     digest = catalog_hash(catalog)
-    catalog_end_ms = parse_time_ms("2025-01-01T00:00:00+00:00")
+    catalog_end_ms = parse_time_ms("2026-01-01T00:00:00+00:00")
+    raw_snapshot = output_dir / "catalog_snapshot.geojson.gz"
+    raw_bytes = json.dumps(
+        {"type": "FeatureCollection", "features": catalog},
+        separators=(",", ":"), ensure_ascii=False,
+    ).encode("utf-8")
+    raw_snapshot.write_bytes(gzip.compress(raw_bytes, compresslevel=6))
+    raw_path = output_dir / "catalog_manifest.json"
+    raw_path.write_text(json.dumps({
+        "downloaded_utc": datetime.now(timezone.utc).isoformat(),
+        "query": {"starttime": catalog_start, "endtime": catalog_end,
+                  "minmagnitude": MIN_TRAIN_MAG, "orderby": "time-asc"},
+        "returned_events": len(catalog), "sha256": digest,
+        "compressed_snapshot": raw_snapshot.name,
+        "compressed_snapshot_sha256": hashlib.sha256(raw_snapshot.read_bytes()).hexdigest(),
+        "strict_historical_snapshot": False,
+    }, indent=2), encoding="utf-8")
+
+    print("[2/6] Downloading and matching Global CMT moment tensors...", flush=True)
+    gcmt_events, gcmt_digest = download_gcmt_catalog(output_dir / "gcmt_catalog.ndk.gz")
+    gcmt_by_event = match_gcmt_solutions(catalog, gcmt_events)
+    print(
+        f"      GCMT solutions parsed: {len(gcmt_events)}; matched ComCat events: "
+        f"{len(gcmt_by_event)}",
+        flush=True,
+    )
+    gcmt_manifest = {
+        "source": "Global Centroid Moment Tensor catalog",
+        "url": "https://www.globalcmt.org/CMTfiles",
+        "ndk_url": "https://www.ldeo.columbia.edu/~gcmt/projects/CMT/catalog/jan76_dec25.ndk.gz",
+        "ndk_sha256": gcmt_digest,
+        "parsed_solutions": len(gcmt_events),
+        "matched_comcat_events": len(gcmt_by_event),
+        "availability_time_method": (
+            "Q-/S- analysis timestamp embedded in NDK line 3; this is an analysis-time "
+            "proxy, not a guaranteed public-release timestamp"
+        ),
+        "strict_historical_snapshot": False,
+    }
+    (output_dir / "gcmt_manifest.json").write_text(
+        json.dumps(gcmt_manifest, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
     raw_snapshot = output_dir / "catalog_snapshot.geojson.gz"
     raw_bytes = json.dumps(
         {"type": "FeatureCollection", "features": catalog},
@@ -440,7 +516,7 @@ def run_blind_test(args: argparse.Namespace) -> Path:
         "strict_historical_snapshot": False,
     }, indent=2), encoding="utf-8")
 
-    print("[2/5] Building equal-area grid and plate-motion features...", flush=True)
+    print("[3/6] Building equal-area grid and plate-motion features...", flush=True)
     cells = equal_area_grid(500.0)
     plates = load_morvel()
     segments = load_boundary_segments()
@@ -448,34 +524,46 @@ def run_blind_test(args: argparse.Namespace) -> Path:
     cell_path = output_dir / "grid.json"
     cell_path.write_text(json.dumps(cells, ensure_ascii=False), encoding="utf-8")
 
-    print("[3/5] Loading Coupling Cloud geodetic models...", flush=True)
+    print("[4/6] Loading Coupling Cloud geodetic models...", flush=True)
     if args.download_coupling:
         try:
             download_coupling_cloud(Path(args.coupling_dir))
         except Exception as exc:
             print(f"      warning: Coupling Cloud download failed: {type(exc).__name__}: {exc}", flush=True)
     coupling = load_coupling_cloud(args.coupling_dir, cells)
-    print(f"      coupling coverage: {np.mean(np.isfinite(coupling['coupling_fraction'])):.1%}", flush=True)
+    print(
+        f"      coupling coverage: {coupling.get('coupling_coverage_fraction', np.mean(np.isfinite(coupling['coupling_fraction']))):.1%}; "
+        f"slip-deficit coverage: {coupling.get('slip_deficit_coverage_fraction', 0.0):.1%}; "
+        f"accepted model files: {len(coupling.get('files_used', []))}",
+        flush=True,
+    )
     if not coupling.get("files_used"):
         print("      K2 will be marked unscored: no compatible coupling NetCDF files found.", flush=True)
 
-    cutoffs = select_cutoffs(catalog, args.start_year, args.end_year,
-                             args.max_triggers, not args.no_controls)
+    cutoffs = select_cutoffs(
+        catalog, args.start_year, args.end_year, args.max_triggers,
+        not args.no_controls, gcmt_by_event, catalog_end_ms,
+    )
     manifest = {
         "title": "Seismic Watch K0-K4 occurrence-time hindcast",
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "catalog_sha256": digest,
         "cutoff_selection": {
-            "major_event_rule": f"All M>={TARGET_MAG} events in {args.start_year}-{args.end_year}, "
-                                f"deterministically subsampled to max {args.max_triggers} if required",
-            "trigger_cutoff_rule": "origin time + 7 days",
+            "major_event_rule": (
+                f"M>={TARGET_MAG} events in {args.start_year}-{args.end_year} with "
+                "a matched timestamped Global CMT mechanism and a complete 365-day "
+                f"outcome window; deterministic maximum {args.max_triggers}"
+            ),
+            "trigger_cutoff_rule": "max(origin time + 7 days, GCMT Q-/S- analysis timestamp)",
+            "gcmt_catalog_sha256": gcmt_digest,
+            "common_comparison_rule": "K0-K4 are compared only on trigger cutoffs where all five models have status=ok",
             "controls": not args.no_controls,
             "control_rule": "first day of each month at 00:00 UTC",
         },
         "cutoffs": [],
     }
 
-    print(f"[4/5] Generating {len(cutoffs)} forecasts using pre-cutoff data only...", flush=True)
+    print(f"[5/6] Generating {len(cutoffs)} forecasts using pre-cutoff data only...", flush=True)
     all_meta = []
     for i, cutoff in enumerate(cutoffs, 1):
         detail = None
@@ -484,6 +572,18 @@ def run_blind_test(args: argparse.Namespace) -> Path:
                 detail = fetch_event_detail(str(cutoff["trigger_event_id"]))
             except Exception as exc:
                 print(f"      warning: detail fetch failed for {cutoff['trigger_event_id']}: {exc}", flush=True)
+            if detail is None:
+                detail = next(
+                    (event for event in catalog
+                     if str(event.get("id") or "") == str(cutoff["trigger_event_id"])),
+                    None,
+                )
+            if detail is not None:
+                detail = attach_gcmt_solution(
+                    detail,
+                    gcmt_by_event[str(cutoff["trigger_event_id"])],
+                    int(cutoff["cutoff_ms"]),
+                )
         meta = _forecast_snapshot(
             cutoff, catalog, detail, cells, coupling, output_dir, digest, catalog_end_ms
         )
@@ -501,7 +601,7 @@ def run_blind_test(args: argparse.Namespace) -> Path:
     manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
 
     # Phase 2 begins only after every forecast snapshot has been written.
-    print("[5/5] Opening the outcome windows and scoring the frozen forecasts...", flush=True)
+    print("[6/6] Opening the outcome windows and scoring the frozen forecasts...", flush=True)
     scores: list[dict[str, Any]] = []
     for meta in all_meta:
         cutoff_ms = int(meta["cutoff_ms"])
@@ -533,7 +633,7 @@ def run_blind_test(args: argparse.Namespace) -> Path:
                         else "occurrence_time_hindcast"
                     ),
                 }
-                if model_name == "K2" and meta["training_model_status"]["K2"] != "ok":
+                if model_name == "K2" and not str(meta["training_model_status"]["K2"]).startswith("ok"):
                     row["status"] = "not_scored_no_coupling_coverage"
                 elif model_name in ("K3", "K4") and meta["physical_data_status"]["status"] != "ok":
                     row["status"] = meta["physical_data_status"]["status"]
@@ -598,8 +698,49 @@ def run_blind_test(args: argparse.Namespace) -> Path:
         clean = [float(v) for v in values if v is not None and math.isfinite(float(v))]
         return float(np.mean(clean)) if clean else None
 
+    common_cutoff_ids: dict[int, set[str]] = {}
+    for days in HORIZONS_DAYS:
+        model_sets = []
+        for model_name in MODEL_NAMES:
+            model_sets.append({
+                row["cutoff_id"] for row in scores
+                if row["model"] == model_name and row["horizon_days"] == days
+                and row.get("status") == "ok"
+                and row["cutoff_kind"] == "major_event_trigger"
+            })
+        common_cutoff_ids[days] = set.intersection(*model_sets) if model_sets else set()
+
+    common_sample_manifest = {
+        "title": "Paired K0-K4 common historical sample",
+        "selection_rule": (
+            "A trigger cutoff is included only when K0, K1, K2, K3 and K4 all have "
+            "status=ok. Every model uses exactly the same cutoff IDs per horizon."
+        ),
+        "cutoffs_by_horizon": {
+            str(days): sorted(common_cutoff_ids[days]) for days in HORIZONS_DAYS
+        },
+        "cutoff_count_by_horizon": {
+            str(days): len(common_cutoff_ids[days]) for days in HORIZONS_DAYS
+        },
+        "calendar_controls_excluded": (
+            "K3/K4 are triggered stress-transfer models; controls have no source event "
+            "and are not assigned artificial zero-stress sources."
+        ),
+    }
+    (output_dir / "common_sample_manifest.json").write_text(
+        json.dumps(common_sample_manifest, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+    def include_split(row: dict[str, Any], split: str) -> bool:
+        if split == "all":
+            return True
+        if split == "common_k0_k4":
+            return row["cutoff_id"] in common_cutoff_ids.get(int(row["horizon_days"]), set())
+        return row["cutoff_kind"] == split
+
     aggregate: list[dict[str, Any]] = []
-    split_values = ("all", "major_event_trigger", "calendar_control")
+    split_values = ("all", "major_event_trigger", "calendar_control", "common_k0_k4")
     for split in split_values:
         for model in MODEL_NAMES:
             for days in HORIZONS_DAYS:
@@ -607,14 +748,14 @@ def run_blind_test(args: argparse.Namespace) -> Path:
                     r for r in scores
                     if r["model"] == model and r["horizon_days"] == days
                     and r.get("status") == "ok"
-                    and (split == "all" or r["cutoff_kind"] == split)
+                    and include_split(r, split)
                 ]
                 baseline_by_cutoff = {
                     r["cutoff_id"]: r
                     for r in scores
                     if r["model"] == "K0" and r["horizon_days"] == days
                     and r.get("status") == "ok"
-                    and (split == "all" or r["cutoff_kind"] == split)
+                    and include_split(r, split)
                 }
                 paired = [
                     (r, baseline_by_cutoff[r["cutoff_id"]])
@@ -686,7 +827,7 @@ def run_blind_test(args: argparse.Namespace) -> Path:
                 subset = [
                     r for r in scores if r["model"] == model
                     and r["horizon_days"] == days
-                    and (split == "all" or r["cutoff_kind"] == split)
+                    and include_split(r, split)
                 ]
                 counts = collections.Counter(r.get("status", "unknown") for r in subset)
                 status_summary.append({
@@ -715,9 +856,9 @@ def run_blind_test(args: argparse.Namespace) -> Path:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--start-year", type=int, default=2022)
-    parser.add_argument("--end-year", type=int, default=2023)
-    parser.add_argument("--max-triggers", type=int, default=24,
+    parser.add_argument("--start-year", type=int, default=2010)
+    parser.add_argument("--end-year", type=int, default=2024)
+    parser.add_argument("--max-triggers", type=int, default=120,
                         help="Maximum evenly spaced M>=6.5 trigger events (0 means all)")
     parser.add_argument("--no-controls", action="store_true",
                         help="Do not include monthly calendar control cutoffs")

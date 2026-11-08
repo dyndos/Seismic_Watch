@@ -25,20 +25,57 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _find_coord(ds: Any, names: tuple[str, ...]) -> str | None:
+    """Find geographic coordinate arrays; don't mistake projected x/y for degrees."""
     available = {str(k).lower(): str(k) for k in list(ds.coords) + list(ds.variables)}
     for name in names:
         actual = available.get(name.lower())
         if actual is None:
             continue
         candidate = ds[actual]
-        if actual in ds.coords or candidate.ndim == 1:
-            return actual
+        if candidate.ndim not in (1, 2):
+            continue
+        attrs = {str(k).lower(): str(v).lower() for k, v in candidate.attrs.items()}
+        units = attrs.get("units", "")
+        standard_name = attrs.get("standard_name", "")
+        if name.lower() in {"x", "y"}:
+            expected = "longitude" if name.lower() == "x" else "latitude"
+            if standard_name != expected and "degree" not in units:
+                continue
+        values = np.asarray(candidate.values, dtype=float)
+        finite = values[np.isfinite(values)]
+        if finite.size == 0:
+            continue
+        if name.lower() in {"latitude", "lat", "y"} and (
+            np.nanmin(finite) < -90.01 or np.nanmax(finite) > 90.01
+        ):
+            continue
+        if name.lower() in {"longitude", "lon", "x"} and (
+            np.nanmin(finite) < -360.01 or np.nanmax(finite) > 360.01
+        ):
+            continue
+        return actual
     return None
 
 
-def load_coupling_cloud(coupling_dir: Path | str | None,
-                        cells: list[dict[str, Any]]) -> dict[str, Any]:
-    """Sample Coupling Cloud NetCDF grids; preserve missing coverage and units."""
+def _unit_sphere_xyz(latitude: np.ndarray, longitude: np.ndarray) -> np.ndarray:
+    lat = np.radians(np.asarray(latitude, dtype=float))
+    lon = np.radians(np.asarray(longitude, dtype=float))
+    cos_lat = np.cos(lat)
+    return np.column_stack((cos_lat * np.cos(lon), cos_lat * np.sin(lon), np.sin(lat)))
+
+
+def load_coupling_cloud(
+    coupling_dir: Path | str | None,
+    cells: list[dict[str, Any]],
+    max_sample_distance_km: float = 350.0,
+) -> dict[str, Any]:
+    """Sample rectilinear and 2-D curvilinear Coupling Cloud NetCDF grids.
+
+    Sampling is geodesic (unit-sphere nearest-neighbour), handles longitude
+    wrapping, and leaves distant cells missing instead of extrapolating.
+    """
+    from scipy.spatial import cKDTree
+
     n = len(cells)
     result = {
         "coupling_fraction": np.full(n, np.nan),
@@ -47,6 +84,8 @@ def load_coupling_cloud(coupling_dir: Path | str | None,
         "files_used": [],
         "variables_used": [],
         "unit_rejections": [],
+        "unsupported_grids": [],
+        "max_sample_distance_km": float(max_sample_distance_km),
     }
     if not coupling_dir:
         return result
@@ -58,10 +97,19 @@ def load_coupling_cloud(coupling_dir: Path | str | None,
     except ImportError:
         return result
 
-    sums = {"coupling_fraction": np.zeros(n), "slip_deficit_mm_yr": np.zeros(n)}
-    counts = {"coupling_fraction": np.zeros(n, dtype=int), "slip_deficit_mm_yr": np.zeros(n, dtype=int)}
-    lats = np.array([c["latitude"] for c in cells], dtype=float)
-    lons = np.array([c["longitude"] for c in cells], dtype=float)
+    sums = {
+        "coupling_fraction": np.zeros(n, dtype=float),
+        "slip_deficit_mm_yr": np.zeros(n, dtype=float),
+    }
+    counts = {
+        "coupling_fraction": np.zeros(n, dtype=int),
+        "slip_deficit_mm_yr": np.zeros(n, dtype=int),
+    }
+    cell_xyz = _unit_sphere_xyz(
+        np.asarray([c["latitude"] for c in cells], dtype=float),
+        np.asarray([c["longitude"] for c in cells], dtype=float),
+    )
+    chord_limit = 2.0 * math.sin((max_sample_distance_km / 6371.0088) / 2.0)
 
     for file in sorted(root.rglob("*.nc")):
         try:
@@ -69,23 +117,41 @@ def load_coupling_cloud(coupling_dir: Path | str | None,
                 lat_name = _find_coord(ds, ("latitude", "lat", "y"))
                 lon_name = _find_coord(ds, ("longitude", "lon", "x"))
                 if not lat_name or not lon_name:
+                    result["unsupported_grids"].append({
+                        "file": str(file), "reason": "missing_geographic_coordinates",
+                    })
                     continue
                 lat_coord, lon_coord = ds[lat_name], ds[lon_name]
-                if lat_coord.ndim != 1 or lon_coord.ndim != 1:
-                    continue
-                work = ds.sortby(lat_name).sortby(lon_name)
-                lon_values = np.asarray(work[lon_name].values, dtype=float)
-                if np.nanmin(lon_values) >= 0 and np.nanmax(lon_values) > 180:
-                    query_lons = lons % 360.0
+                lat_values = np.asarray(lat_coord.values, dtype=float)
+                lon_values = np.asarray(lon_coord.values, dtype=float)
+                if lat_values.ndim == lon_values.ndim == 1:
+                    lat_grid, lon_grid = np.meshgrid(lat_values, lon_values, indexing="ij")
+                    spatial_dims = (lat_coord.dims[0], lon_coord.dims[0])
+                elif (
+                    lat_values.ndim == lon_values.ndim == 2
+                    and lat_values.shape == lon_values.shape
+                    and lat_coord.dims == lon_coord.dims
+                ):
+                    lat_grid, lon_grid = lat_values, lon_values
+                    spatial_dims = tuple(lat_coord.dims)
                 else:
-                    query_lons = (lons + 180.0) % 360.0 - 180.0
-                query = {
-                    lat_name: xr.DataArray(lats, dims="point"),
-                    lon_name: xr.DataArray(query_lons, dims="point"),
-                }
+                    result["unsupported_grids"].append({
+                        "file": str(file), "reason": "unsupported_coordinate_shape",
+                        "latitude_shape": list(lat_values.shape),
+                        "longitude_shape": list(lon_values.shape),
+                    })
+                    continue
+
+                coord_valid = (
+                    np.isfinite(lat_grid) & np.isfinite(lon_grid)
+                    & (lat_grid >= -90.0) & (lat_grid <= 90.0)
+                )
+                if not np.any(coord_valid):
+                    continue
+                grid_xyz = _unit_sphere_xyz(lat_grid[coord_valid], lon_grid[coord_valid])
                 sampled_any = False
-                for var in work.data_vars:
-                    key = var.lower().replace("-", "_").replace(" ", "_")
+                for var in ds.data_vars:
+                    key = str(var).lower().replace("-", "_").replace(" ", "_")
                     if any(token in key for token in ("uncert", "std", "sigma", "error")):
                         continue
                     if "coupl" in key:
@@ -94,50 +160,82 @@ def load_coupling_cloud(coupling_dir: Path | str | None,
                         target = "slip_deficit_mm_yr"
                     else:
                         continue
-                    da = work[var].squeeze(drop=True)
-                    if lat_name not in da.dims or lon_name not in da.dims or da.ndim != 2:
+                    da = ds[var].squeeze(drop=True)
+                    if da.ndim != 2 or set(da.dims) != set(spatial_dims):
                         continue
-                    values = np.asarray(
-                        da.interp(query, method="nearest").values, dtype=float
-                    ).reshape(-1)
-                    valid = np.isfinite(values)
-                    units = str(da.attrs.get("units") or "").strip().lower().replace(" ", "")
+                    values_grid = np.asarray(da.transpose(*spatial_dims).values, dtype=float)
+                    if values_grid.shape != lat_grid.shape:
+                        continue
+                    values = values_grid[coord_valid]
+                    value_valid = np.isfinite(values)
+                    if not np.any(value_valid):
+                        continue
+                    units = str(da.attrs.get("units") or "").strip().lower()
+                    units_compact = units.replace(" ", "")
+                    tree = cKDTree(grid_xyz[value_valid])
+                    distances, nearest = tree.query(cell_xyz, k=1)
+                    accepted = np.isfinite(distances) & (distances <= chord_limit)
+                    sampled = np.full(n, np.nan, dtype=float)
+                    if np.any(accepted):
+                        sampled[accepted] = values[value_valid][nearest[accepted]]
+                    valid = np.isfinite(sampled)
                     if target == "coupling_fraction":
-                        if np.nanmax(values[valid], initial=0) > 1.5:
-                            values[valid] = values[valid] / 100.0
-                        values = np.clip(values, 0.0, 1.0)
+                        if "%" in units_compact or "percent" in units_compact:
+                            sampled[valid] /= 100.0
+                        elif np.nanmax(sampled[valid], initial=0.0) > 1.5:
+                            sampled[valid] /= 100.0
+                        sampled[valid] = np.clip(sampled[valid], 0.0, 1.0)
                     else:
-                        # Never label a rate as mm/yr unless its units can be converted.
                         conversion = {
                             "mm/yr": 1.0, "mm/year": 1.0, "mm/a": 1.0,
                             "cm/yr": 10.0, "cm/year": 10.0, "cm/a": 10.0,
                             "m/yr": 1000.0, "m/year": 1000.0, "m/a": 1000.0,
                             "mm/yr-1": 1.0, "cm/yr-1": 10.0, "m/yr-1": 1000.0,
                         }
-                        factor = conversion.get(units)
+                        factor = conversion.get(units_compact)
                         if factor is None:
                             result["unit_rejections"].append({
-                                "file": str(file), "variable": str(var), "units": units or None,
+                                "file": str(file), "variable": str(var),
+                                "units": units or None,
                             })
                             continue
-                        values[valid] *= factor
-                    sums[target][valid] += values[valid]
+                        sampled[valid] *= factor
+                    sums[target][valid] += sampled[valid]
                     counts[target][valid] += 1
                     sampled_any = True
                     result["variables_used"].append({
                         "file": str(file), "variable": str(var), "target": target,
                         "original_units": units or None,
+                        "sampled_cells": int(np.sum(valid)),
+                        "grid_type": "curvilinear" if lat_values.ndim == 2 else "rectilinear",
                     })
                 if sampled_any:
                     result["files_used"].append(str(file))
-        except Exception:
-            # One malformed or unsupported model must not suppress other regions.
-            continue
+        except Exception as exc:
+            result["unsupported_grids"].append({
+                "file": str(file), "reason": f"{type(exc).__name__}: {exc}",
+            })
 
     for key in counts:
         valid = counts[key] > 0
         result[key][valid] = sums[key][valid] / counts[key][valid]
-    result["model_count"] = np.maximum(counts["coupling_fraction"], counts["slip_deficit_mm_yr"])
+    result["model_count"] = np.maximum(
+        counts["coupling_fraction"], counts["slip_deficit_mm_yr"]
+    )
+    result["coupling_coverage_fraction"] = float(
+        np.mean(np.isfinite(result["coupling_fraction"]))
+    )
+    result["slip_deficit_coverage_fraction"] = float(
+        np.mean(np.isfinite(result["slip_deficit_mm_yr"]))
+    )
+    result["any_physical_coverage_fraction"] = float(np.mean(
+        np.isfinite(result["coupling_fraction"])
+        | np.isfinite(result["slip_deficit_mm_yr"])
+    ))
+    result["covered_cells"] = int(np.sum(
+        np.isfinite(result["coupling_fraction"])
+        | np.isfinite(result["slip_deficit_mm_yr"])
+    ))
     return result
 
 

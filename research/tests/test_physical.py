@@ -149,3 +149,35 @@ def test_cutde_halfspace_coulomb_smoke_with_two_nodal_plane_scenarios():
     assert np.isfinite(result["delta_cfs_mpa"]).all()
     assert np.isfinite(result["delta_cfs_p10_mpa"]).all()
     assert np.isfinite(result["delta_cfs_p90_mpa"]).all()
+
+
+def test_curvilinear_coupling_grid_is_sampled_on_the_sphere(tmp_path):
+    import pytest
+    xr = pytest.importorskip("xarray")
+    import numpy as np
+
+    y = np.arange(3)
+    x = np.arange(3)
+    lat = np.array([[0.0, 0.0, 0.0], [1.0, 1.0, 1.0], [2.0, 2.0, 2.0]])
+    lon = np.array([[10.0, 11.0, 12.0], [10.1, 11.1, 12.1], [10.2, 11.2, 12.2]])
+    ds = xr.Dataset(
+        {
+            "coupling": (("y", "x"), np.full((3, 3), 0.75)),
+            "slip_deficit": (("y", "x"), np.full((3, 3), 20.0)),
+            "latitude": (("y", "x"), lat),
+            "longitude": (("y", "x"), lon),
+        },
+        coords={"y": y, "x": x},
+    )
+    ds["coupling"].attrs["units"] = "1"
+    ds["slip_deficit"].attrs["units"] = "mm/yr"
+    ds.to_netcdf(tmp_path / "curvilinear.nc")
+    cells = [
+        {"latitude": 1.0, "longitude": 11.1},
+        {"latitude": 20.0, "longitude": 20.0},
+    ]
+    result = load_coupling_cloud(tmp_path, cells)
+    assert np.isclose(result["coupling_fraction"][0], 0.75)
+    assert np.isclose(result["slip_deficit_mm_yr"][0], 20.0)
+    assert np.isnan(result["coupling_fraction"][1])
+    assert result["coupling_coverage_fraction"] == 0.5
