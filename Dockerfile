@@ -10,6 +10,9 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
+# Next.js imports API route modules during build; provide a non-routable build-only
+# placeholder. docker-compose.yml injects the real DATABASE_URL at runtime.
+ENV DATABASE_URL=postgresql://build:build@127.0.0.1:1/build
 RUN npm run build
 
 # ── prod deps only ──────────────────────────────────────────────────────────
