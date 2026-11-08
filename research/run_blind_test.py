@@ -317,7 +317,7 @@ def _forecast_snapshot(cutoff: dict[str, Any], catalog: list[dict[str, Any]],
                     "status": "ok",
                     "source": stress["source"],
                     "stress_coverage_fraction": stress["coverage_fraction"],
-                    "receiver_depth_km": stress["receiver_depth_km"],
+                    "receiver_depth_km": stress.get("receiver_depth_km", stress.get("receiver_depth_km_default")),
                     "max_distance_km": stress["max_distance_km"],
                     "effective_friction": stress["effective_friction"],
                     "shear_modulus_pa": stress["shear_modulus_pa"],
@@ -454,7 +454,7 @@ def run_blind_test(args: argparse.Namespace) -> Path:
     output_dir.mkdir(parents=True, exist_ok=True)
     catalog_start = "2000-01-01"
     catalog_end = "2026-01-01"
-    print("[1/6] Downloading USGS ComCat catalogue (M>=6.5, 2000-2026)...", flush=True)
+    print("[1/7] Downloading USGS ComCat catalogue (M>=6.5, 2000-2026)...", flush=True)
     catalog = fetch_catalog(catalog_start, catalog_end, MIN_TRAIN_MAG)
     catalog.sort(key=_event_time)
     digest = catalog_hash(catalog)
@@ -476,7 +476,7 @@ def run_blind_test(args: argparse.Namespace) -> Path:
         "strict_historical_snapshot": False,
     }, indent=2), encoding="utf-8")
 
-    print("[2/6] Downloading and matching Global CMT moment tensors...", flush=True)
+    print("[2/7] Downloading and matching Global CMT moment tensors...", flush=True)
     gcmt_events, gcmt_digest = download_gcmt_catalog(output_dir / "gcmt_catalog.ndk.gz")
     gcmt_by_event = match_gcmt_solutions(catalog, gcmt_events)
     print(
@@ -500,23 +500,6 @@ def run_blind_test(args: argparse.Namespace) -> Path:
     (output_dir / "gcmt_manifest.json").write_text(
         json.dumps(gcmt_manifest, indent=2, ensure_ascii=False), encoding="utf-8"
     )
-    raw_snapshot = output_dir / "catalog_snapshot.geojson.gz"
-    raw_bytes = json.dumps(
-        {"type": "FeatureCollection", "features": catalog},
-        separators=(",", ":"), ensure_ascii=False,
-    ).encode("utf-8")
-    raw_snapshot.write_bytes(gzip.compress(raw_bytes, compresslevel=6))
-    raw_path = output_dir / "catalog_manifest.json"
-    raw_path.write_text(json.dumps({
-        "downloaded_utc": datetime.now(timezone.utc).isoformat(),
-        "query": {"starttime": "2000-01-01", "endtime": "2025-01-01",
-                  "minmagnitude": MIN_TRAIN_MAG, "orderby": "time-asc"},
-        "returned_events": len(catalog), "sha256": digest,
-        "compressed_snapshot": raw_snapshot.name,
-        "compressed_snapshot_sha256": hashlib.sha256(raw_snapshot.read_bytes()).hexdigest(),
-        "strict_historical_snapshot": False,
-    }, indent=2), encoding="utf-8")
-
     print("[3/7] Building equal-area grid and plate-motion features...", flush=True)
     cells = equal_area_grid(500.0)
     plates = load_morvel()
