@@ -275,7 +275,7 @@ def _forecast_snapshot(cutoff: dict[str, Any], catalog: list[dict[str, Any]],
                        catalog_digest: str, catalog_end_ms: int) -> dict[str, Any]:
     cutoff_ms = int(cutoff["cutoff_ms"])
     pre_events = [e for e in catalog if _event_time(e) < cutoff_ms]
-    start_train_ms = int(datetime(2000, 1, 1, tzinfo=timezone.utc).timestamp() * 1000)
+    start_train_ms = int(datetime(1976, 1, 1, tzinfo=timezone.utc).timestamp() * 1000)
     training_years = max((cutoff_ms - start_train_ms) / (365.25 * DAY_MS), 1.0)
     counts, training_event_count = count_training_events(
         pre_events, cells, start_train_ms, cutoff_ms, MIN_TRAIN_MAG
@@ -390,6 +390,10 @@ def _forecast_snapshot(cutoff: dict[str, Any], catalog: list[dict[str, Any]],
         "training_model_status": fitted["status"],
         "coupling_coverage_fraction": fitted["coupling_coverage_fraction"],
         "coupling_covered_cells": fitted.get("coupling_covered_cells"),
+        "slab2_coverage_fraction": fitted.get("slab2_coverage_fraction"),
+        "slab2_covered_cells": fitted.get("slab2_covered_cells"),
+        "k2_physical_coverage_fraction": fitted.get("k2_physical_coverage_fraction"),
+        "k2_physical_covered_cells": fitted.get("k2_physical_covered_cells"),
         "coupling_slip_deficit_coverage_fraction": coupling.get("slip_deficit_coverage_fraction"),
         "coupling_any_physical_coverage_fraction": coupling.get("any_physical_coverage_fraction"),
         "coupling_variables_used": coupling.get("variables_used", []),
@@ -452,9 +456,9 @@ def download_coupling_cloud(destination: Path) -> Path:
 def run_blind_test(args: argparse.Namespace) -> Path:
     output_dir = Path(args.output).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    catalog_start = "2000-01-01"
+    catalog_start = "1976-01-01"
     catalog_end = "2026-01-01"
-    print("[1/7] Downloading USGS ComCat catalogue (M>=6.5, 2000-2026)...", flush=True)
+    print("[1/7] Downloading USGS ComCat catalogue (M>=6.5, 1976-2026)...", flush=True)
     catalog = fetch_catalog(catalog_start, catalog_end, MIN_TRAIN_MAG)
     catalog.sort(key=_event_time)
     digest = catalog_hash(catalog)
