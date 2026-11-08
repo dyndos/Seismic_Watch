@@ -1,4 +1,5 @@
 name: Turkey 2023 K0-K4 case study
+# Independent targeted validation; does not run the full multi-decade matrix.
 
 on:
   push:
