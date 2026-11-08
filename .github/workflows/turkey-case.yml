@@ -1,0 +1,60 @@
+name: Turkey 2023 K0-K4 case study
+
+on:
+  push:
+    branches:
+      - feature/historical-backtesting
+    paths:
+      - "research/run_turkey_case.py"
+      - "research/physical.py"
+      - "research/slab2.py"
+      - "research/modeling.py"
+      - "research/kinematics.py"
+      - "research/tests/**"
+      - ".github/workflows/turkey-case.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: turkey-case-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  turkey-case:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: research/requirements.txt
+
+      - name: Install research dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r research/requirements.txt
+
+      - name: Compile research package
+        run: python -m compileall -q research
+
+      - name: Run scientific and model tests
+        run: pytest -q research/tests
+
+      - name: Run Turkey 2023 case study
+        run: python -m research.run_turkey_case --download-coupling --download-slab2 --output research/outputs/turkey-2023-case
+
+      - name: Upload Turkey case forecasts and scores
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: turkey-2023-k0-k4-case
+          path: research/outputs/turkey-2023-case/
+          if-no-files-found: error
+          retention-days: 30
