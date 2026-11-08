@@ -58,10 +58,9 @@ def _coordinate_name(ds: Any, aliases: tuple[str, ...]) -> str | None:
         attrs = {str(key).lower(): str(value).lower() for key, value in coord.attrs.items()}
         units = attrs.get("units", "")
         standard = attrs.get("standard_name", "")
-        if alias.lower() in {"x", "y"} and "degree" not in units:
-            expected = "longitude" if alias.lower() == "x" else "latitude"
-            if standard != expected:
-                continue
+        # Slab2 is a geographic GMT grid. Some GMT files omit CF degree
+        # attributes, so validate x/y numerically rather than rejecting them
+        # solely because their metadata is sparse.
         if alias.lower() in {"latitude", "lat", "y"} and (
             np.nanmin(finite) < -90.01 or np.nanmax(finite) > 90.01
         ):
@@ -74,6 +73,80 @@ def _coordinate_name(ds: Any, aliases: tuple[str, ...]) -> str | None:
     return None
 
 
+def _sample_gmt_classic(ds: Any, cells: list[dict[str, Any]]) -> np.ndarray | None:
+    """Sample GMT classic NetCDF grids that store x/y ranges and a flat z array.
+
+    GMT scanlines are stored north-to-south and west-to-east. Reversing the
+    rows gives an ascending latitude axis for RegularGridInterpolator.
+    """
+    names = {str(key).lower(): str(key) for key in ds.variables}
+    required = ("x_range", "y_range", "spacing", "dimension", "z")
+    if any(name not in names for name in required):
+        return None
+
+    try:
+        x_range = np.asarray(ds[names["x_range"]].values, dtype=float).reshape(-1)
+        y_range = np.asarray(ds[names["y_range"]].values, dtype=float).reshape(-1)
+        spacing = np.asarray(ds[names["spacing"]].values, dtype=float).reshape(-1)
+        dimensions = np.asarray(ds[names["dimension"]].values, dtype=int).reshape(-1)
+        if min(len(x_range), len(y_range), len(spacing), len(dimensions)) < 2:
+            return None
+        nx, ny = int(dimensions[0]), int(dimensions[1])
+        if nx < 2 or ny < 2:
+            return None
+
+        xmin, xmax = float(x_range[0]), float(x_range[1])
+        ymin, ymax = float(y_range[0]), float(y_range[1])
+        dx, dy = abs(float(spacing[0])), abs(float(spacing[1]))
+        if (
+            not all(math.isfinite(v) for v in (xmin, xmax, ymin, ymax, dx, dy))
+            or dx <= 0 or dy <= 0
+            or min(xmin, xmax) < -360.01 or max(xmin, xmax) > 360.01
+            or min(ymin, ymax) < -90.01 or max(ymin, ymax) > 90.01
+        ):
+            return None
+
+        raw = np.ma.filled(ds[names["z"]].values, np.nan)
+        values = np.asarray(raw, dtype=float)
+        if values.size != nx * ny:
+            return None
+        if values.shape == (ny, nx):
+            north_to_south = values
+        elif values.shape == (nx, ny) and nx != ny:
+            north_to_south = values.T
+        else:
+            north_to_south = values.reshape((ny, nx))
+
+        node_offset = int(ds.attrs.get("node_offset", 0) or 0)
+        if node_offset == 1:
+            lon_axis = xmin + (np.arange(nx, dtype=float) + 0.5) * dx
+            lat_axis = ymin + (np.arange(ny, dtype=float) + 0.5) * dy
+        else:
+            lon_axis = np.linspace(xmin, xmax, nx)
+            lat_axis = np.linspace(ymin, ymax, ny)
+        if np.any(np.diff(lon_axis) <= 0) or np.any(np.diff(lat_axis) <= 0):
+            return None
+
+        grid = north_to_south[::-1, :]
+        from scipy.interpolate import RegularGridInterpolator
+
+        interpolator = RegularGridInterpolator(
+            (lat_axis, lon_axis), grid,
+            method="nearest", bounds_error=False, fill_value=np.nan,
+        )
+        query_lons = np.asarray([c["longitude"] for c in cells], dtype=float)
+        if np.nanmin(lon_axis) >= 0.0 and np.nanmax(lon_axis) > 180.0:
+            query_lons %= 360.0
+        else:
+            query_lons = (query_lons + 180.0) % 360.0 - 180.0
+        query_lats = np.asarray([c["latitude"] for c in cells], dtype=float)
+        return np.asarray(
+            interpolator(np.column_stack((query_lats, query_lons))), dtype=float
+        ).reshape(-1)
+    except (KeyError, TypeError, ValueError, IndexError, OverflowError):
+        return None
+
+
 def _sample_grid(path: Path, cells: list[dict[str, Any]]) -> np.ndarray | None:
     try:
         import xarray as xr
@@ -84,10 +157,10 @@ def _sample_grid(path: Path, cells: list[dict[str, Any]]) -> np.ndarray | None:
         lat_name = _coordinate_name(ds, ("latitude", "lat", "y"))
         lon_name = _coordinate_name(ds, ("longitude", "lon", "x"))
         if not lat_name or not lon_name:
-            return None
+            return _sample_gmt_classic(ds, cells)
         lat_coord, lon_coord = ds[lat_name], ds[lon_name]
         if lat_coord.ndim != 1 or lon_coord.ndim != 1:
-            return None
+            return _sample_gmt_classic(ds, cells)
         lat_dim, lon_dim = lat_coord.dims[0], lon_coord.dims[0]
         work = ds.sortby(lat_name).sortby(lon_name)
         lon_values = np.asarray(work[lon_name].values, dtype=float)
@@ -105,7 +178,7 @@ def _sample_grid(path: Path, cells: list[dict[str, Any]]) -> np.ndarray | None:
                 variable = da.transpose(lat_dim, lon_dim)
                 break
         if variable is None:
-            return None
+            return _sample_gmt_classic(ds, cells)
         sampled = variable.interp(
             {
                 lat_name: xr.DataArray(query_lats, dims="point"),
