@@ -227,3 +227,41 @@ def test_coupling_cloud_infers_only_explicit_mm_yr_variable_suffix(tmp_path):
         item.get("unit_inference") == "mm/yr_inferred_from_variable_name"
         for item in result["variables_used"]
     )
+
+
+
+def test_internal_usgs_moment_tensor_is_available_at_early_cutoff():
+    event = _feature(update_time=1_700_000_000_000)
+    original = event["properties"]["products"]["moment-tensor"][0]
+    early_update = 1_675_646_838_040
+    event["properties"]["products"] = {
+        "internal-moment-tensor": [{
+            **original,
+            "updateTime": early_update,
+            "properties": {
+                **original["properties"],
+                "nodal-plane-1-strike": "237.06",
+                "nodal-plane-1-dip": "58.74",
+                "nodal-plane-1-rake": "7.59",
+                "nodal-plane-2-strike": "143.1",
+                "nodal-plane-2-dip": "83.52",
+                "nodal-plane-2-rake": "148.51",
+                "scalar-moment": "5.94e20",
+            },
+        }]
+    }
+    cutoff = early_update + 30 * 60 * 1000
+    mechanism = _extract_moment_tensor(event, cutoff)
+    assert mechanism is not None
+    assert mechanism["product_update_ms"] == float(early_update)
+    source = load_source_fault(event, cutoff)
+    assert source is not None
+    assert source["quality"] == "moment_tensor_plus_empirical_rectangle_proxy"
+    assert source["mechanism_product_update_ms"] == early_update
+
+
+def test_internal_usgs_moment_tensor_after_cutoff_is_not_used():
+    event = _feature(update_time=1_700_000_000_000)
+    product = event["properties"]["products"]["moment-tensor"][0]
+    event["properties"]["products"] = {"internal-moment-tensor": [product]}
+    assert _extract_moment_tensor(event, 1_699_999_999_999) is None
