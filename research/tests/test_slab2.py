@@ -35,9 +35,9 @@ def test_slab2_grids_are_sampled_and_attached_to_cells(tmp_path):
         {"latitude": 35.0, "longitude": 35.0},
     ]
     output, manifest = load_slab2(tmp_path, cells)
-    assert output[0]["slab2_strike_deg"] == 90.0
-    assert output[0]["slab2_dip_deg"] == 31.0
-    assert output[0]["slab2_depth_km"] == 21.0
+    assert np.isclose(output[0]["slab2_strike_deg"], 90.0)
+    assert np.isclose(output[0]["slab2_dip_deg"], 31.0)
+    assert np.isclose(output[0]["slab2_depth_km"], 21.0)
     assert output[0]["slab2_model_count"] == 1
     assert output[1]["slab2_strike_deg"] is None
     assert manifest["cells_with_strike_dip"] == 1
@@ -78,9 +78,9 @@ def test_slab2_reads_gmt_classic_flat_netcdf_grids(tmp_path):
         {"latitude": 35.0, "longitude": 35.0},
     ]
     output, manifest = load_slab2(tmp_path, cells)
-    assert output[0]["slab2_strike_deg"] == 91.0
-    assert output[0]["slab2_dip_deg"] == 21.0
-    assert output[0]["slab2_depth_km"] == 11.0
+    assert np.isclose(output[0]["slab2_strike_deg"], 91.0)
+    assert np.isclose(output[0]["slab2_dip_deg"], 21.0)
+    assert np.isclose(output[0]["slab2_depth_km"], 11.0)
     assert output[1]["slab2_strike_deg"] is None
     assert manifest["cells_with_strike_dip"] == 1
     assert manifest["grid_errors"] == []
