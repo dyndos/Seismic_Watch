@@ -225,6 +225,17 @@ def run_case(args: argparse.Namespace) -> Path:
         meta = _forecast_snapshot(
             cutoff, catalog, detail, cells, coupling, output, digest, catalog_end_ms
         )
+        if source.get("quality") == "usgs_finite_fault_geometry_uniform_slip":
+            meta["physical_data_status"]["source_model_warning"] = (
+                "USGS finite-fault product geometry is used, but the product adapter "
+                "converts scalar moment to uniform average slip; the heterogeneous "
+                "subfault slip distribution is not ingested."
+            )
+        else:
+            meta["physical_data_status"]["source_model_warning"] = (
+                "Rapid internal moment tensor is converted to a magnitude-scaled "
+                "rectangular source proxy; this is not a measured finite-fault slip model."
+            )
         meta["case_description"] = spec["description"]
         meta["expected_source_quality"] = spec["expected_source_quality"]
         meta["training_history_start_utc"] = "1976-01-01T00:00:00+00:00"
