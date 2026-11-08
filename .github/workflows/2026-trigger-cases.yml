@@ -1,4 +1,4 @@
-name: 2026 Tibet and Flores K0-K4 trigger hindcasts
+name: 2026 Tibet and Flores K0-K4 prospective forecasts
 
 on:
   push:
@@ -43,7 +43,7 @@ jobs:
       - name: Run scientific and model tests
         run: pytest -q research/tests
 
-      - name: Run 2026 Tibet and Flores as-of hindcasts
+      - name: Run 2026 Tibet and Flores prospective forecasts
         run: |
           python -m research.run_2026_trigger_cases \
             --download-coupling \
@@ -54,7 +54,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: 2026-earthquake-trigger-case-studies
+          name: 2026-earthquake-prospective-forecasts
           path: research/outputs/2026-trigger-cases/
           if-no-files-found: warn
           retention-days: 30
