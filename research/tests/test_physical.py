@@ -195,3 +195,35 @@ def test_receiver_scenarios_uses_slab2_geometry():
     }
     result = _receiver_scenarios(cell, {"strike_deg": 90.0})
     assert result == [(112.0, 34.0, 90.0), (112.0, 34.0, -90.0)]
+
+
+
+def test_coupling_cloud_infers_only_explicit_mm_yr_variable_suffix(tmp_path):
+    import pytest
+    xr = pytest.importorskip("xarray")
+    lat = np.array([[0.0, 0.0, 0.0], [1.0, 1.0, 1.0], [2.0, 2.0, 2.0]])
+    lon = np.array([[10.0, 11.0, 12.0], [10.0, 11.0, 12.0], [10.0, 11.0, 12.0]])
+    ds = xr.Dataset(
+        {
+            "slip_deficit_rate_mm_yr": (
+                ("y", "x"), np.full((3, 3), 18.0)
+            ),
+        },
+        coords={
+            "latitude": (("y", "x"), lat),
+            "longitude": (("y", "x"), lon),
+            "y": np.arange(3),
+            "x": np.arange(3),
+        },
+    )
+    # Deliberately omit units: the explicit variable suffix is the evidence.
+    ds.to_netcdf(tmp_path / "explicit_units.nc")
+    result = load_coupling_cloud(
+        tmp_path, [{"latitude": 1.0, "longitude": 11.0}]
+    )
+    assert np.isclose(result["slip_deficit_mm_yr"][0], 18.0)
+    assert result["slip_deficit_coverage_fraction"] == 1.0
+    assert any(
+        item.get("unit_inference") == "mm/yr_inferred_from_variable_name"
+        for item in result["variables_used"]
+    )
