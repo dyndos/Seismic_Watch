@@ -116,10 +116,26 @@ def select_cutoffs(
     include_controls: bool,
     gcmt_by_event: dict[str, dict[str, Any]],
     catalog_end_ms: int,
+    start_date: str | None = None,
+    end_date: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Select mechanism-backed triggers with complete, common outcome windows."""
-    start_ms = int(datetime(start_year, 1, 1, tzinfo=timezone.utc).timestamp() * 1000)
-    end_ms = int(datetime(end_year + 1, 1, 1, tzinfo=timezone.utc).timestamp() * 1000)
+    """Select mechanism-backed triggers with complete, common outcome windows.
+
+    Optional start_date/end_date define an exact origin-time window [start, end).
+    The upper bound is exclusive, so use 2023-07-01 to include all of H1 2023.
+    """
+    start_ms = (
+        parse_time_ms(start_date)
+        if start_date else
+        int(datetime(start_year, 1, 1, tzinfo=timezone.utc).timestamp() * 1000)
+    )
+    end_ms = (
+        parse_time_ms(end_date)
+        if end_date else
+        int(datetime(end_year + 1, 1, 1, tzinfo=timezone.utc).timestamp() * 1000)
+    )
+    if end_ms <= start_ms:
+        raise ValueError("The event window end must be later than the start.")
     candidates = [
         event for event in catalog
         if start_ms <= _event_time(event) < end_ms
@@ -548,6 +564,7 @@ def run_blind_test(args: argparse.Namespace) -> Path:
     cutoffs = select_cutoffs(
         catalog, args.start_year, args.end_year, args.max_triggers,
         not args.no_controls, gcmt_by_event, catalog_end_ms,
+        start_date=args.start_date, end_date=args.end_date,
     )
     manifest = {
         "title": "Seismic Watch K0-K4 occurrence-time hindcast",
@@ -555,10 +572,16 @@ def run_blind_test(args: argparse.Namespace) -> Path:
         "catalog_sha256": digest,
         "cutoff_selection": {
             "major_event_rule": (
+                f"M>={TARGET_MAG} events in [{args.start_date}, {args.end_date}) "
+                "with a matched timestamped Global CMT mechanism and a complete 365-day "
+                f"outcome window; deterministic evenly spaced maximum {args.max_triggers}"
+                if args.start_date and args.end_date else
                 f"M>={TARGET_MAG} events in {args.start_year}-{args.end_year} with "
                 "a matched timestamped Global CMT mechanism and a complete 365-day "
-                f"outcome window; deterministic maximum {args.max_triggers}"
+                f"outcome window; deterministic evenly spaced maximum {args.max_triggers}"
             ),
+            "date_window_start_inclusive": args.start_date,
+            "date_window_end_exclusive": args.end_date,
             "trigger_cutoff_rule": "max(origin time + 7 days, GCMT Q-/S- analysis timestamp)",
             "gcmt_catalog_sha256": gcmt_digest,
             "common_comparison_rule": "K0-K4 are compared only on trigger cutoffs where all five models have status=ok",
@@ -863,6 +886,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--start-year", type=int, default=2010)
     parser.add_argument("--end-year", type=int, default=2025)
+    parser.add_argument(
+        "--start-date", type=str, default=None,
+        help="Optional inclusive ISO date/time bound for trigger origin times, e.g. 2023-01-01",
+    )
+    parser.add_argument(
+        "--end-date", type=str, default=None,
+        help="Optional exclusive ISO date/time bound for trigger origin times, e.g. 2023-07-01",
+    )
     parser.add_argument("--max-triggers", type=int, default=0,
                         help="Maximum evenly spaced M>=6.5 trigger events (0 means all)")
     parser.add_argument("--no-controls", action="store_true",
