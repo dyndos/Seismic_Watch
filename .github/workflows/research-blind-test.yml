@@ -42,7 +42,7 @@ jobs:
         run: |
           python -m research.run_blind_test \
             --start-year 2000 \
-            --end-year 2024 \
+            --end-year 2025 \
             --max-triggers 0 \
             --download-coupling \
             --download-slab2 \
