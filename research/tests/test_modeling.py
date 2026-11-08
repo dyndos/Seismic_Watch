@@ -47,3 +47,42 @@ def test_k3_k4_interval_probabilities_are_bounded():
     assert np.all((k4["probability"] >= 0) & (k4["probability"] <= 1))
     assert k3["probability"][0] > k3["probability"][1]
     assert k4["probability"][0] > k4["probability"][1]
+
+
+
+def test_k2_uses_slab2_geometry_when_coupling_is_unavailable():
+    cells = []
+    for index in range(20):
+        cell = {
+            "relative_speed_mm_yr": 5.0 + index,
+            "normal_velocity_mm_yr": 1.0 + 0.2 * index,
+            "parallel_velocity_mm_yr": 4.0 + 0.3 * index,
+            "boundary_distance_km": 10.0 + index * 5.0,
+            "motion_azimuth_deg": float(index * 7),
+            "slab2_strike_deg": None,
+            "slab2_dip_deg": None,
+            "slab2_depth_km": None,
+            "slab2_model_count": 0,
+        }
+        if index < 8:
+            cell.update({
+                "slab2_strike_deg": 90.0 + index,
+                "slab2_dip_deg": 20.0 + index,
+                "slab2_depth_km": 10.0 + index * 4.0,
+                "slab2_model_count": 1,
+            })
+        cells.append(cell)
+
+    result = fit_spatial_rate_models(
+        cells, np.asarray([1.0 + (i % 4) for i in range(20)]), 15.0,
+        {
+            "coupling_fraction": np.full(20, np.nan),
+            "slip_deficit_mm_yr": np.full(20, np.nan),
+            "model_count": np.zeros(20),
+        },
+    )
+    assert result["status"]["K2"].startswith("ok")
+    assert np.isclose(result["slab2_coverage_fraction"], 0.4)
+    assert result["coupling_coverage_fraction"] == 0.0
+    assert np.isclose(result["k2_physical_coverage_fraction"], 0.4)
+    assert np.all(result["K2"] >= 0.0)
