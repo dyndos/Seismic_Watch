@@ -206,7 +206,7 @@ def run(args: argparse.Namespace) -> Path:
     })
     write_json(output / "grid.json", cells)
 
-    print("[5/7] Freezing each forecast at trigger + 7 days...", flush=True)
+    print("[5/7] Freezing prospective forecasts as of the current run time...", flush=True)
     metadata = []
     source_checks = []
     for spec in TRIGGERS:
@@ -215,7 +215,7 @@ def run(args: argparse.Namespace) -> Path:
         if event is None:
             raise RuntimeError(f"Target event {event_id} not found in current ComCat M>=6.5 catalog.")
         origin_ms = _event_time(event)
-        cutoff_ms = origin_ms + 7 * DAY_MS
+        cutoff_ms = now_ms
         detail = fetch_event_detail(event_id)
         if detail is None:
             raise RuntimeError(f"Event detail unavailable for {event_id}.")
@@ -251,12 +251,12 @@ def run(args: argparse.Namespace) -> Path:
             "longitude": float(coords[0]),
         }
         cutoff = {
-            "cutoff_id": spec["case_id"] + "_asof_7d",
+            "cutoff_id": spec["case_id"] + "_forecast_asof_" + now.strftime("%Y%m%dT%H%M%SZ"),
             "kind": "major_event_trigger",
             "trigger_event_id": event_id,
             "trigger_origin_ms": origin_ms,
             "cutoff_ms": cutoff_ms,
-            "cutoff_rule": "mainshock origin + 7 days; source products filtered by updateTime",
+            "cutoff_rule": "current run timestamp; source products filtered by updateTime; forecast horizons start now",
             "source_solution_catalog": spec["fallback"]["source"] if fallback_used else "USGS ComCat products",
             "source_solution_name": source.get("quality"),
             "source_solution_update_ms": update_ms,
@@ -299,8 +299,8 @@ def run(args: argparse.Namespace) -> Path:
         meta["fallback_mechanism_attached"] = fallback_used
         meta["fallback_provenance"] = spec["fallback"]["url"] if fallback_used else None
         meta["case_limitations"] = [
-            "Forecast is a retrospective hindcast frozen seven days after the mainshock.",
-            "All events with origin time before cutoff, including the mainshock and first-week aftershocks, are included in training.",
+            "Prospective forecast frozen at the current run timestamp; forecast horizons begin at this timestamp.",
+            "All events with origin time before the forecast timestamp, including both trigger events and all known aftershocks, are included in training.",
             "Current Coupling Cloud and Slab2 are retrospective modern inputs, not dated historical snapshots.",
             "Current ComCat is not a versioned historical catalogue; occurrences and source products are filtered by available timestamps.",
             "PB2002 receiver orientations are scenarios, not a mapped inventory of active faults.",
@@ -316,7 +316,7 @@ def run(args: argparse.Namespace) -> Path:
 
     write_json(output / "case_source_checks.json", source_checks)
     write_json(output / "case_manifest.json", {
-        "title": "2026 Tibet and Flores K0-K4 event-trigger hindcasts",
+        "title": "2026 Tibet and Flores K0-K4 prospective forecasts",
         "created_utc": catalog_end,
         "catalog_sha256": digest,
         "catalog_events": len(catalog),
@@ -328,16 +328,26 @@ def run(args: argparse.Namespace) -> Path:
         "physical_data_note": "Current Coupling Cloud and Slab2 are retrospective modern inputs.",
     })
 
-    print("[6/7] Scoring full horizons only; partial horizons remain unscored...", flush=True)
-    summaries = {"data_as_of_utc": catalog_end, "target": "global M>=6.5", "cases": {}}
-    score_rows = []
+    print("[6/7] Preparing forward-looking forecast surfaces (no retrospective scoring)...", flush=True)
+    summaries = {
+        "forecast_created_utc": catalog_end,
+        "forecast_start_utc": catalog_end,
+        "forecast_type": "prospective_as_of_snapshot",
+        "target": "global M>=6.5",
+        "horizons_days": list(HORIZONS_DAYS),
+        "cases": {},
+    }
+    forecast_rows = []
     for meta in metadata:
         npz = np.load(output / meta["snapshot_npz"], allow_pickle=False)
         probabilities = npz["probability"]
         trigger = meta["trigger_event"]
         case_summary = {
             "event": trigger,
-            "forecast_cutoff_utc": meta["cutoff_utc"],
+            "trigger_age_days_at_forecast": round(
+                (now_ms - int(meta["trigger_origin_ms"])) / DAY_MS, 4
+            ),
+            "forecast_start_utc": meta["cutoff_utc"],
             "source_status": meta["physical_data_status"],
             "training_event_count_m_ge_6_5": meta["training_event_count_m_ge_6_5"],
             "training_years": meta["training_years"],
@@ -354,96 +364,49 @@ def run(args: argparse.Namespace) -> Path:
                 stats = make_forecast_stats(
                     probability, cells, trigger["latitude"], trigger["longitude"]
                 )
-                fully_observed = int(meta["cutoff_ms"]) + days * DAY_MS <= now_ms
-                elapsed = max(0.0, min(days, (now_ms - int(meta["cutoff_ms"])) / DAY_MS))
-                positives, indexes, matched = assign_outcomes_to_grid(
-                    catalog, cells, int(meta["cutoff_ms"]), days, TARGET_MAG
-                )
-                local_events = [
-                    e for e in matched
-                    if distance_km(
-                        trigger["latitude"], trigger["longitude"],
-                        e["latitude"], e["longitude"],
-                    ) <= 1000.0
-                ]
-                if not str(status).startswith("ok") or not np.any(np.isfinite(probability)):
-                    score = {"status": status}
-                elif fully_observed:
-                    score = score_spatial_probability(probability, positives, indexes, cells)
-                else:
-                    score = {
-                        "status": "partial_window_not_scored",
-                        "elapsed_days": round(elapsed, 3),
-                    }
-
                 row = {
                     "case_id": meta["case_id"],
                     "event_name": meta["event_name"],
-                    "cutoff_utc": meta["cutoff_utc"],
+                    "forecast_start_utc": meta["cutoff_utc"],
+                    "trigger_age_days": case_summary["trigger_age_days_at_forecast"],
                     "model": model,
                     "model_status": status,
                     "horizon_days": days,
-                    "fully_observed": fully_observed,
-                    "elapsed_days": round(elapsed, 3),
-                    "observed_global_events_m_ge_6_5": len(matched),
-                    "observed_local_events_within_1000km_m_ge_6_5": len(local_events),
-                    "observed_event_ids": [e["id"] for e in matched],
-                    "brier_spatial": score.get("brier_spatial"),
-                    "log_loss_spatial": score.get("log_loss_spatial"),
-                    "event_capture_top_10pct_area": score.get("event_capture_top_10pct_area"),
-                    "mean_distance_to_top10pct_area_km": score.get("mean_distance_to_top10pct_area_km"),
-                    "score_status": score.get("status"),
                     "global_probability_any_event_approx": stats.get("global_probability_any_event_approx"),
                     "nearest_trigger_cell_id": stats.get("nearest_trigger_cell_id"),
+                    "nearest_trigger_cell_distance_km": stats.get("nearest_trigger_cell_distance_km"),
                     "nearest_trigger_cell_local_rank": stats.get("nearest_trigger_cell_local_rank"),
-                    "top_cells": stats.get("top_cells", [])[:5],
+                    "top_cells": stats.get("top_cells", [])[:10],
                 }
-                score_rows.append(row)
+                forecast_rows.append(row)
                 horizons.append({
                     "days": days,
+                    "forecast_end_utc": utc_iso(int(meta["cutoff_ms"]) + days * DAY_MS),
                     "status": status,
-                    "fully_observed": fully_observed,
-                    "elapsed_days": round(elapsed, 3),
-                    "observed_events": matched,
-                    "observed_local_events": local_events,
-                    "score": score,
                     **stats,
                 })
             case_summary["models"][model] = {"status": status, "horizons": horizons}
         summaries["cases"][meta["case_id"]] = case_summary
 
-    baselines = {
-        (r["case_id"], r["horizon_days"]): r["brier_spatial"]
-        for r in score_rows
-        if r["model"] == "K0" and r["score_status"] == "ok" and r["brier_spatial"] is not None
-    }
-    for row in score_rows:
-        base = baselines.get((row["case_id"], row["horizon_days"]))
-        value = row["brier_spatial"]
-        row["brier_skill_vs_K0"] = (
-            1.0 - float(value) / float(base)
-            if value is not None and base is not None and base > 0 else None
-        )
-
     write_json(output / "forecast_summary.json", summaries)
-    write_json(output / "scores.json", score_rows)
-    if score_rows:
-        with (output / "scores.csv").open("w", newline="", encoding="utf-8-sig") as f:
-            writer = csv.DictWriter(f, fieldnames=list(score_rows[0].keys()), extrasaction="ignore")
+    write_json(output / "forecast_rows.json", forecast_rows)
+    if forecast_rows:
+        with (output / "forecast_rows.csv").open("w", newline="", encoding="utf-8-sig") as f:
+            writer = csv.DictWriter(f, fieldnames=list(forecast_rows[0].keys()), extrasaction="ignore")
             writer.writeheader()
-            writer.writerows(score_rows)
+            writer.writerows(forecast_rows)
 
-    print("[7/7] Creating report...", flush=True)
+    print("[7/7] Creating prospective forecast report...", flush=True)
     report = [
-        "# Seismic Watch: 2026 Tibet and Flores K0-K4 hindcasts",
+        "# Seismic Watch: prospective forecast from the 2026 Tibet and Flores triggers",
         "",
-        f"Data snapshot: {catalog_end}",
+        f"Forecast frozen at: {catalog_end}",
         "",
-        "Each forecast was frozen seven days after the mainshock. The mainshock and all catalogued M>=6.5 events before the cutoff are part of the training history. Later events are held out for scoring.",
+        "This is a forward-looking forecast for subsequent verification, not a hindcast score. The model was fitted using all catalogued M>=6.5 events with origin time before the forecast timestamp, including the two trigger earthquakes and their known aftershocks. No event after the forecast timestamp is used.",
         "",
-        "The model estimates global spatial probabilities of subsequent M>=6.5 events on a 500-km equal-area grid. It does not predict an exact date, hour, or individual fault.",
+        "The model estimates global spatial probabilities of subsequent M>=6.5 events on a 500-km equal-area grid, over 1, 3, 7, 14, 30, 90 and 365 days from the forecast timestamp. It does not predict an exact date, hour, or individual fault.",
         "",
-        "K0: baseline historical rate. K1: plate-kinematic features. K2: K1 plus Coupling Cloud and Slab2. K3: Coulomb stress step. K4: Dieterich rate-and-state response.",
+        "K0: baseline historical rate. K1: plate-kinematic features. K2: K1 plus Coupling Cloud and Slab2. K3: Coulomb stress step from the selected trigger. K4: Dieterich rate-and-state response, with elapsed time measured from that trigger's origin.",
         "",
     ]
     for meta in metadata:
@@ -452,62 +415,57 @@ def run(args: argparse.Namespace) -> Path:
         report.extend([
             "## " + meta["event_name"],
             "",
-            f"USGS ComCat: {ev['id']} — {ev.get('place')}",
-            f"Origin: {ev['time_utc']}; epicentre {ev['latitude']:.3f}, {ev['longitude']:.3f}; depth {ev['depth_km']} km; magnitude {ev['magnitude']}",
-            f"Forecast cutoff: {meta['cutoff_utc']}",
-            f"Moment tensor / finite-fault product update: {meta['source_solution_update_utc']}",
-            f"Training history: {meta['training_event_count_m_ge_6_5']} events M>=6.5 over {meta['training_years']} years",
-            f"Physical status: {meta['physical_data_status'].get('status')}; K2 physical coverage {meta.get('k2_physical_coverage_fraction')}; stress coverage {meta['physical_data_status'].get('stress_coverage_fraction')}",
-            f"Fallback mechanism inserted: {meta.get('fallback_mechanism_attached')}",
+            f"- USGS ComCat: {ev['id']} — {ev.get('place')}",
+            f"- Origin: {ev['time_utc']}; epicentre {ev['latitude']:.3f}°, {ev['longitude']:.3f}°; depth {ev['depth_km']} km; magnitude {ev['magnitude']}",
+            f"- Forecast timestamp: {meta['cutoff_utc']}",
+            f"- Trigger age at forecast: {case['trigger_age_days_at_forecast']:.2f} days",
+            f"- Source mechanism update: {meta['source_solution_update_utc']}",
+            f"- Source geometry: {meta['physical_data_status'].get('source', {}).get('quality', meta['source_solution_name'])}",
+            f"- Fallback mechanism inserted: {meta.get('fallback_mechanism_attached')}",
+            f"- Training history: {meta['training_event_count_m_ge_6_5']} events M>=6.5 over {meta['training_years']} years",
+            f"- K2 physical coverage: {meta.get('k2_physical_coverage_fraction')}; stress coverage: {meta['physical_data_status'].get('stress_coverage_fraction')}",
             "",
-            "| Model | Approx global P(>=1 event), 30d | 90d | 365d | Nearby cell rank within 1000 km, 90d |",
-            "|---|---:|---:|---:|---:|",
+            "| Model | Approx. global P(>=1 M>=6.5), 7d | 30d | 90d | 365d | Local rank of nearest cell, 90d |",
+            "|---|---:|---:|---:|---:|---:|",
         ])
         for model in MODEL_NAMES:
-            items = case["models"][model]["horizons"]
+            hs = case["models"][model]["horizons"]
             def pct(day: int) -> str:
-                x = next(v for v in items if v["days"] == day)
+                x = next(v for v in hs if v["days"] == day)
                 p = x.get("global_probability_any_event_approx")
                 return f"{100*p:.3f}%" if p is not None else "n/a"
-            rank = next(v for v in items if v["days"] == 90).get("nearest_trigger_cell_local_rank")
+            rank = next(v for v in hs if v["days"] == 90).get("nearest_trigger_cell_local_rank")
             report.append(
-                f"| {model} ({case['models'][model]['status']}) | {pct(30)} | {pct(90)} | {pct(365)} | {rank if rank is not None else 'n/a'} |"
+                f"| {model} ({case['models'][model]['status']}) | {pct(7)} | {pct(30)} | "
+                f"{pct(90)} | {pct(365)} | {rank if rank is not None else 'n/a'} |"
             )
-        report.extend(["", "### Top cells at the 90-day horizon", ""])
+        report.extend(["", "### Top 5 grid cells at the 90-day horizon", ""])
         for model in MODEL_NAMES:
             item = next(v for v in case["models"][model]["horizons"] if v["days"] == 90)
             top = item.get("top_cells") or []
             points = "; ".join(
-                f"{x['latitude']:.1f}, {x['longitude']:.1f} ({100*x['probability']:.4f}%)"
+                f"{x['latitude']:.1f}°, {x['longitude']:.1f}° ({100*x['probability']:.4f}%)"
                 for x in top[:5]
             )
-            report.append(f"- {model}: {points or 'probability surface unavailable'}")
-        report.extend(["", "### Observed events after cutoff", ""])
-        k0_items = case["models"]["K0"]["horizons"]
-        for item in k0_items:
-            events = item["observed_events"]
-            sample = ", ".join(
-                f"M{x['magnitude']:.1f} at {x['latitude']:.2f}, {x['longitude']:.2f} on {x['time'][:10]}"
-                for x in events[:6]
-            ) or "No M>=6.5 events recorded"
-            state = "complete horizon" if item["fully_observed"] else f"partial, {item['elapsed_days']:.1f} of {item['days']} days elapsed"
-            report.append(f"- {item['days']} days ({state}): {sample}")
+            report.append(f"- **{model}:** {points or 'probability surface unavailable'}")
         report.append("")
-
     report.extend([
+        "## How to verify this forecast",
+        "",
+        "The forecast timestamp and the complete probability surfaces are saved in this artifact. Future ComCat events with origin time later than that timestamp can be compared with the frozen surfaces. Do not regenerate these forecasts before scoring; a new run creates a new, separate forecast vintage.",
+        "",
         "## Limitations",
         "",
-        "A single trigger case cannot establish predictive skill. Brier score is calculated only when the full horizon has elapsed; incomplete horizons are not scored as zero events.",
-        "The global-any-event probability is an independence approximation over grid cells and is not a calibrated probability for a specific earthquake.",
+        "The approximate global probability of at least one event multiplies cell probabilities under an independence assumption; it is not a calibrated probability for a specific earthquake.",
         "Coupling Cloud and Slab2 are modern retrospective geophysical layers, not frozen historical snapshots.",
-        "Current ComCat is not a versioned historical catalogue. Event occurrence times and current product update timestamps are used for filtering.",
+        "Current ComCat is not a versioned historical catalogue. Its event occurrence times and currently retained source-product update timestamps are used for filtering.",
         "PB2002 receiver orientations are scenarios, not a detailed active-fault inventory. The 500-km grid cannot resolve individual fault segments.",
-        "Fallback moment tensors, where required, are copied from the timestamped public source cited in case_source_checks.json.",
+        "If a mechanism was attached from a separate public source, its provenance URL and timestamp are recorded in case_source_checks.json.",
         "",
-        "Reproducibility files: forecast_summary.json, scores.csv, catalog snapshot, source checks, and the frozen NPZ forecast surfaces.",
+        "Reproducibility files: forecast_summary.json, forecast_rows.csv, catalog_snapshot.geojson.gz, case_source_checks.json, and frozen NPZ forecast surfaces.",
     ])
     (output / "report.md").write_text("\n".join(report), encoding="utf-8")
-    print(f"Finished: {output}", flush=True)
+
     return output
 
 
