@@ -1,8 +1,8 @@
 # ── deps: install all (incl. dev) for the build stage ────────────────────────
 FROM node:22-alpine AS deps
 WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci
+COPY package.json ./
+RUN npm install
 
 # ── builder: compile the production bundle (DB is NOT needed at build time) ──
 FROM node:22-alpine AS builder
@@ -15,8 +15,8 @@ RUN npm run build
 # ── prod deps only ──────────────────────────────────────────────────────────
 FROM node:22-alpine AS prod-deps
 WORKDIR /app
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+COPY package.json ./
+RUN npm install --omit=dev
 
 # ── runner ──────────────────────────────────────────────────────────────────
 FROM node:22-alpine AS runner
