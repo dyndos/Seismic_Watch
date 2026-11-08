@@ -39,11 +39,7 @@ jobs:
         run: pytest -q research/tests
 
       - name: Run Turkey 2023 K0-K4 case study
-        run: |
-          python -m research.run_turkey_case \\
-            --download-coupling \\
-            --download-slab2 \\
-            --output research/outputs/turkey-2023-case
+        run: python -m research.run_turkey_case --download-coupling --download-slab2 --output research/outputs/turkey-2023-case
 
       - name: Run expanded historical hindcast
         run: |
