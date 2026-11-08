@@ -38,10 +38,10 @@ The test suite checks plate velocity calculations and PB2002 code handling, as-o
 ## Run the historical hindcast
 
 Default settings:
-- training catalogue: 1976-01-01 through 2024-12-31, M>=6.5;
+- catalogue snapshot: 1976-01-01 through the last completed UTC day, M>=6.5; each cutoff uses only events with origin time before that cutoff;
 - event catalogue and training history: 1976-01-01 through 2025-12-31, M>=6.5;
-- cutoffs: all M>=6.5 events in 2000–2024 with a matched, timestamped Global CMT mechanism and a complete 365-day outcome window (no subsampling by default);
-- controls: first day of every month in 2000–2024;
+- cutoffs: all M>=6.5 events in 2000–2025 with a matched, timestamped Global CMT mechanism and a complete 365-day outcome window (no subsampling by default);
+- controls: first day of every month in 2000–2025;
 - trigger cutoff: the later of origin time + 7 days or the Global CMT Q-/S- analysis timestamp;
 - horizons: 1, 3, 7, 14, 30, 90, 180 and 365 days;
 - primary grid: approximately 500-km equal-area cells (EPSG:6933);
@@ -50,7 +50,7 @@ Default settings:
 Run:
 
 ```bash
-python -m research.run_blind_test --start-year 2000 --end-year 2024 --max-triggers 0 --download-coupling --download-slab2
+python -m research.run_blind_test --start-year 2000 --end-year 2025 --max-triggers 0 --download-coupling --download-slab2
 ```
 
 To first make a smaller, quicker trial:
