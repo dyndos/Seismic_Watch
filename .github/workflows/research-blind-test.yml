@@ -38,6 +38,13 @@ jobs:
       - name: Run scientific and model tests
         run: pytest -q research/tests
 
+      - name: Run Turkey 2023 K0-K4 case study
+        run: |
+          python -m research.run_turkey_case \\
+            --download-coupling \\
+            --download-slab2 \\
+            --output research/outputs/turkey-2023-case
+
       - name: Run expanded historical hindcast
         run: |
           python -m research.run_blind_test \
@@ -53,6 +60,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: seismic-watch-hindcast-${{ github.run_number }}
-          path: research/outputs/blind-test/
+          path: |
+            research/outputs/blind-test/
+            research/outputs/turkey-2023-case/
           if-no-files-found: warn
           retention-days: 30
