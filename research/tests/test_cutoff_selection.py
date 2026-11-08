@@ -48,7 +48,7 @@ def test_exact_date_window_is_start_inclusive_end_exclusive() -> None:
 
 def test_max_triggers_is_applied_after_date_filter_and_is_evenly_spaced() -> None:
     events = [
-        feature(f"event-{i:02d}", f"2023-{1 + (i // 2):02d}-{1 + (i % 2):02d}T00:00:00Z")
+        feature(f"event-{i:02d}", f"2023-{1 + (i // 4):02d}-{1 + (i % 4):02d}T00:00:00Z")
         for i in range(20)
     ]
     gcmt = {
