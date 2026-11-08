@@ -15,7 +15,7 @@ DAYS_PER_YEAR = 365.25
 
 
 def _feature_array(cells: list[dict[str, Any]], coupling: dict[str, Any] | None = None,
-                   use_coupling: bool = False) -> np.ndarray:
+                   use_coupling: bool = False, use_slab2: bool = False) -> np.ndarray:
     columns = []
     for key in (
         "relative_speed_mm_yr",
@@ -40,6 +40,23 @@ def _feature_array(cells: list[dict[str, Any]], coupling: dict[str, Any] | None 
         columns.append(np.asarray(coupling.get("coupling_fraction", np.full(len(cells), np.nan)), dtype=float))
         columns.append(np.asarray(coupling.get("slip_deficit_mm_yr", np.full(len(cells), np.nan)), dtype=float))
         columns.append(np.log1p(np.asarray(coupling.get("model_count", np.zeros(len(cells))), dtype=float)))
+    if use_slab2:
+        strikes = np.asarray([
+            np.nan if c.get("slab2_strike_deg") is None else np.radians(2.0 * float(c["slab2_strike_deg"]))
+            for c in cells
+        ])
+        dips = np.asarray([
+            np.nan if c.get("slab2_dip_deg") is None else float(c["slab2_dip_deg"])
+            for c in cells
+        ])
+        depths = np.asarray([
+            np.nan if c.get("slab2_depth_km") is None else float(c["slab2_depth_km"])
+            for c in cells
+        ])
+        columns.extend([
+            np.sin(strikes), np.cos(strikes), dips, np.log1p(depths),
+            np.log1p(np.asarray([c.get("slab2_model_count", 0) for c in cells], dtype=float)),
+        ])
     return np.column_stack(columns)
 
 
@@ -105,22 +122,45 @@ def fit_spatial_rate_models(cells: list[dict[str, Any]], counts: np.ndarray,
     coupling = coupling or {}
     coupling_values = np.asarray(coupling.get("coupling_fraction", np.full(n, np.nan)), dtype=float)
     slip_values = np.asarray(coupling.get("slip_deficit_mm_yr", np.full(n, np.nan)), dtype=float)
-    coverage = np.isfinite(coupling_values) | np.isfinite(slip_values)
-    coverage_cells = int(np.sum(coverage))
-    coverage_fraction = float(np.mean(coverage))
-    # Coupling Cloud is regional by design. Do not discard useful subduction
-    # observations because the global-grid coverage is below 2%.
+    coupling_coverage = np.isfinite(coupling_values) | np.isfinite(slip_values)
+    coupling_coverage_cells = int(np.sum(coupling_coverage))
+    coupling_coverage_fraction = float(np.mean(coupling_coverage))
+
+    slab2_strike = np.asarray([
+        np.nan if c.get("slab2_strike_deg") is None else float(c["slab2_strike_deg"])
+        for c in cells
+    ])
+    slab2_dip = np.asarray([
+        np.nan if c.get("slab2_dip_deg") is None else float(c["slab2_dip_deg"])
+        for c in cells
+    ])
+    slab2_depth = np.asarray([
+        np.nan if c.get("slab2_depth_km") is None else float(c["slab2_depth_km"])
+        for c in cells
+    ])
+    slab2_orientation = np.isfinite(slab2_strike) & np.isfinite(slab2_dip)
+    slab2_coverage = slab2_orientation | np.isfinite(slab2_depth)
+    slab2_coverage_cells = int(np.sum(slab2_coverage))
+    slab2_coverage_fraction = float(np.mean(slab2_coverage))
+
+    # Combine geodetic coupling and subduction interface geometry. The source
+    # footprints remain separately reported; imputation is not observed data.
+    physical_coverage = coupling_coverage | slab2_coverage
+    physical_coverage_cells = int(np.sum(physical_coverage))
+    physical_coverage_fraction = float(np.mean(physical_coverage))
     minimum_coverage_cells = max(8, int(0.005 * n))
-    if coverage_cells >= minimum_coverage_cells:
-        k2_features = _feature_array(cells, coupling, use_coupling=True)
-        k2, k2_status = fit(
-            k2_features, alpha=20.0 if coverage_fraction < 0.10 else 8.0
+    if physical_coverage_cells >= minimum_coverage_cells:
+        k2_features = _feature_array(
+            cells, coupling, use_coupling=True, use_slab2=True
         )
-        if k2_status == "ok" and coverage_fraction < 0.80:
+        k2, k2_status = fit(
+            k2_features, alpha=20.0 if physical_coverage_fraction < 0.10 else 8.0
+        )
+        if k2_status == "ok" and physical_coverage_fraction < 0.80:
             k2_status = "ok_partial_coverage"
     else:
         k2 = k1.copy()
-        k2_status = "not_scored_insufficient_coupling_coverage"
+        k2_status = "not_scored_insufficient_physical_coverage"
 
     return {
         "K0": k0,
@@ -131,8 +171,12 @@ def fit_spatial_rate_models(cells: list[dict[str, Any]], counts: np.ndarray,
             "K1": k1_status,
             "K2": k2_status,
         },
-        "coupling_coverage_fraction": coverage_fraction,
-        "coupling_covered_cells": coverage_cells,
+        "coupling_coverage_fraction": coupling_coverage_fraction,
+        "coupling_covered_cells": coupling_coverage_cells,
+        "slab2_coverage_fraction": slab2_coverage_fraction,
+        "slab2_covered_cells": slab2_coverage_cells,
+        "k2_physical_coverage_fraction": physical_coverage_fraction,
+        "k2_physical_covered_cells": physical_coverage_cells,
         "training_event_count": int(np.sum(counts)),
         "global_annual_rate": global_rate,
     }
