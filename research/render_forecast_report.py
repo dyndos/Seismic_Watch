@@ -142,6 +142,9 @@ def run(output_dir: Path) -> tuple[Path, Path]:
 
     for case_id, case in summary.get("cases", {}).items():
         event = case["event"]
+        snapshot_meta_path = output_dir / "forecast_snapshots" / f"{case_id}.json"
+        snapshot_meta = read_json(snapshot_meta_path) if snapshot_meta_path.is_file() else {}
+        snapshot_npz_name = snapshot_meta.get("snapshot_npz")
         trigger_geo = reverse_geocode(float(event["latitude"]), float(event["longitude"]), cache, session)
         report.extend([
             f"### {case.get('event_name', case_id)}",
@@ -183,7 +186,7 @@ def run(output_dir: Path) -> tuple[Path, Path]:
             if h90:
                 # This is an independence approximation over cells, not a calibrated
                 # regional event probability.
-                npz_path = output_dir / case.get("snapshot_npz", "")
+                npz_path = output_dir / snapshot_npz_name if snapshot_npz_name else Path("/__missing_snapshot__")
                 if npz_path.is_file():
                     import numpy as np
                     with np.load(npz_path, allow_pickle=False) as npz:
@@ -199,9 +202,13 @@ def run(output_dir: Path) -> tuple[Path, Path]:
         report.extend(["", "#### Наиболее вероятные территории на горизонте 90 дней", "",
                        "| Модель | Ранг | Территория / ближайший населенный пункт | Вероятность ячейки |",
                        "|---|---:|---|---:|"])
+        max_cell_probability = max((item[2] for item in case_geo), default=0.0)
+        report.append("Полоса показывает относительную величину среди лидирующих ячеек "
+                      "этого прогноза (максимум = 100%); рядом указана абсолютная вероятность.")
         for model, rank, probability, location in case_geo:
+            relative = probability / max_cell_probability if max_cell_probability > 0 else 0.0
             report.append(f"| {model} | {rank} | {location['label']} | "
-                          f"{pct(probability)} {bar(probability)} |")
+                          f"{pct(probability)} {bar(relative)} |")
         report.extend([
             "", "* Региональная оценка для радиуса 1000 км — приближение через произведение "
             "вероятностей ячеек при предположении их независимости. Это не откалиброванная "
