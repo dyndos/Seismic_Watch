@@ -260,7 +260,7 @@ def _parse_float(props: dict[str, Any], key: str) -> float | None:
 def _extract_moment_tensor(feature: dict[str, Any], as_of_ms: int) -> dict[str, float] | None:
     products = (feature.get("properties") or {}).get("products") or {}
     candidates = []
-    for kind in ("moment-tensor", "focal-mechanism"):
+    for kind in ("moment-tensor", "focal-mechanism", "internal-moment-tensor"):
         candidates.extend(products.get(kind) or [])
     candidates.sort(key=lambda p: int(p.get("updateTime") or 0), reverse=True)
     for product in candidates:
