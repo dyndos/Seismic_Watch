@@ -41,7 +41,7 @@ jobs:
       - name: Run expanded historical hindcast
         run: |
           python -m research.run_blind_test \
-            --start-year 2010 \
+            --start-year 2000 \
             --end-year 2024 \
             --max-triggers 0 \
             --download-coupling \
