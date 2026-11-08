@@ -457,12 +457,12 @@ def run_blind_test(args: argparse.Namespace) -> Path:
     output_dir = Path(args.output).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
     catalog_start = "1976-01-01"
-    catalog_end = "2026-01-01"
+    catalog_end = datetime.now(timezone.utc).date().isoformat()
     print("[1/7] Downloading USGS ComCat catalogue (M>=6.5, 1976-2026)...", flush=True)
     catalog = fetch_catalog(catalog_start, catalog_end, MIN_TRAIN_MAG)
     catalog.sort(key=_event_time)
     digest = catalog_hash(catalog)
-    catalog_end_ms = parse_time_ms("2026-01-01T00:00:00+00:00")
+    catalog_end_ms = parse_time_ms(f"{catalog_end}T00:00:00+00:00")
     raw_snapshot = output_dir / "catalog_snapshot.geojson.gz"
     raw_bytes = json.dumps(
         {"type": "FeatureCollection", "features": catalog},
@@ -862,7 +862,7 @@ def run_blind_test(args: argparse.Namespace) -> Path:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--start-year", type=int, default=2010)
-    parser.add_argument("--end-year", type=int, default=2024)
+    parser.add_argument("--end-year", type=int, default=2025)
     parser.add_argument("--max-triggers", type=int, default=0,
                         help="Maximum evenly spaced M>=6.5 trigger events (0 means all)")
     parser.add_argument("--no-controls", action="store_true",
