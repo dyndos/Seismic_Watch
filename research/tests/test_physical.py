@@ -181,3 +181,17 @@ def test_curvilinear_coupling_grid_is_sampled_on_the_sphere(tmp_path):
     assert np.isclose(result["slip_deficit_mm_yr"][0], 20.0)
     assert np.isnan(result["coupling_fraction"][1])
     assert result["coupling_coverage_fraction"] == 0.5
+
+
+
+def test_receiver_scenarios_uses_slab2_geometry():
+    from research.physical import _receiver_scenarios
+
+    cell = {
+        "slab2_strike_deg": 112.0,
+        "slab2_dip_deg": 34.0,
+        "boundary_type": "subduction",
+        "boundary_tangent_azimuth_deg": 90.0,
+    }
+    result = _receiver_scenarios(cell, {"strike_deg": 90.0})
+    assert result == [(112.0, 34.0, 90.0), (112.0, 34.0, -90.0)]

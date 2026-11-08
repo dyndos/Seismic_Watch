@@ -114,9 +114,9 @@ def fit_spatial_rate_models(cells: list[dict[str, Any]], counts: np.ndarray,
     if coverage_cells >= minimum_coverage_cells:
         k2_features = _feature_array(cells, coupling, use_coupling=True)
         k2, k2_status = fit(
-            k2_features, alpha=20.0 if coverage_fraction < 0.05 else 8.0
+            k2_features, alpha=20.0 if coverage_fraction < 0.10 else 8.0
         )
-        if k2_status == "ok" and coverage_fraction < 0.05:
+        if k2_status == "ok" and coverage_fraction < 0.80:
             k2_status = "ok_partial_coverage"
     else:
         k2 = k1.copy()

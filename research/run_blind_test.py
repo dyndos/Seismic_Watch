@@ -37,6 +37,7 @@ from research.modeling import (
 )
 from research.physical import calculate_delta_cfs, load_coupling_cloud
 from research.gcmt import attach_gcmt_solution, download_gcmt_catalog, match_gcmt_solutions
+from research.slab2 import download_slab2, load_slab2
 
 USGS_QUERY = "https://earthquake.usgs.gov/fdsnws/event/1/query"
 DAY_MS = 86_400_000
@@ -516,15 +517,32 @@ def run_blind_test(args: argparse.Namespace) -> Path:
         "strict_historical_snapshot": False,
     }, indent=2), encoding="utf-8")
 
-    print("[3/6] Building equal-area grid and plate-motion features...", flush=True)
+    print("[3/7] Building equal-area grid and plate-motion features...", flush=True)
     cells = equal_area_grid(500.0)
     plates = load_morvel()
     segments = load_boundary_segments()
     cells = annotate_grid(cells, plates, segments)
+
+    print("[4/7] Loading USGS Slab2 receiver geometry...", flush=True)
+    if args.download_slab2:
+        try:
+            download_slab2(Path(args.slab2_dir))
+        except Exception as exc:
+            print(f"      warning: Slab2 download failed: {type(exc).__name__}: {exc}", flush=True)
+    cells, slab2_manifest = load_slab2(args.slab2_dir, cells)
+    (output_dir / "slab2_manifest.json").write_text(
+        json.dumps(slab2_manifest, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    print(
+        f"      Slab2 strike/dip coverage: {slab2_manifest['strike_dip_coverage_fraction']:.1%}; "
+        f"depth coverage: {slab2_manifest['depth_coverage_fraction']:.1%}; "
+        f"regions: {len(slab2_manifest['regions_used'])}",
+        flush=True,
+    )
     cell_path = output_dir / "grid.json"
     cell_path.write_text(json.dumps(cells, ensure_ascii=False), encoding="utf-8")
 
-    print("[4/6] Loading Coupling Cloud geodetic models...", flush=True)
+    print("[5/7] Loading Coupling Cloud geodetic models...", flush=True)
     if args.download_coupling:
         try:
             download_coupling_cloud(Path(args.coupling_dir))
@@ -563,7 +581,7 @@ def run_blind_test(args: argparse.Namespace) -> Path:
         "cutoffs": [],
     }
 
-    print(f"[5/6] Generating {len(cutoffs)} forecasts using pre-cutoff data only...", flush=True)
+    print(f"[6/7] Generating {len(cutoffs)} forecasts using pre-cutoff data only...", flush=True)
     all_meta = []
     for i, cutoff in enumerate(cutoffs, 1):
         detail = None
@@ -601,7 +619,7 @@ def run_blind_test(args: argparse.Namespace) -> Path:
     manifest_path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False), encoding="utf-8")
 
     # Phase 2 begins only after every forecast snapshot has been written.
-    print("[6/6] Opening the outcome windows and scoring the frozen forecasts...", flush=True)
+    print("[7/7] Opening the outcome windows and scoring the frozen forecasts...", flush=True)
     scores: list[dict[str, Any]] = []
     for meta in all_meta:
         cutoff_ms = int(meta["cutoff_ms"])
@@ -858,13 +876,16 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--start-year", type=int, default=2010)
     parser.add_argument("--end-year", type=int, default=2024)
-    parser.add_argument("--max-triggers", type=int, default=120,
+    parser.add_argument("--max-triggers", type=int, default=0,
                         help="Maximum evenly spaced M>=6.5 trigger events (0 means all)")
     parser.add_argument("--no-controls", action="store_true",
                         help="Do not include monthly calendar control cutoffs")
     parser.add_argument("--coupling-dir", default=str(ROOT / "research" / "data" / "coupling_cloud"))
     parser.add_argument("--download-coupling", action="store_true",
                         help="Download the current public Coupling Cloud NetCDF archive before running K2")
+    parser.add_argument("--slab2-dir", default=str(ROOT / "research" / "data" / "slab2"))
+    parser.add_argument("--download-slab2", action="store_true",
+                        help="Download the official USGS Slab2 strike/dip/depth grids")
     parser.add_argument("--output", default=str(ROOT / "research" / "outputs" / "blind-test"))
     return parser
 

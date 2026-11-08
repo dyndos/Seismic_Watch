@@ -43,8 +43,9 @@ jobs:
           python -m research.run_blind_test \
             --start-year 2010 \
             --end-year 2024 \
-            --max-triggers 120 \
+            --max-triggers 0 \
             --download-coupling \
+            --download-slab2 \
             --output research/outputs/blind-test
 
       - name: Upload frozen forecasts and scores

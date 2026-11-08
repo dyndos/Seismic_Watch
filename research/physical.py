@@ -444,6 +444,21 @@ def _rectangle_triangles(source: dict[str, Any], transformer: Any) -> tuple[np.n
 
 
 def _receiver_scenarios(cell: dict[str, Any], source: dict[str, Any]) -> list[tuple[float, float, float]]:
+    slab_strike = cell.get("slab2_strike_deg")
+    slab_dip = cell.get("slab2_dip_deg")
+    if (
+        slab_strike is not None and slab_dip is not None
+        and math.isfinite(float(slab_strike))
+        and math.isfinite(float(slab_dip))
+        and 0.0 < float(slab_dip) <= 90.0
+    ):
+        # Slab2 supplies the actual local interface strike/dip. Slip sense is
+        # unresolved at this grid scale, so preserve both thrust directions.
+        return [
+            (float(slab_strike), float(slab_dip), 90.0),
+            (float(slab_strike), float(slab_dip), -90.0),
+        ]
+
     strike = cell.get("boundary_tangent_azimuth_deg")
     if strike is None:
         strike = source["strike_deg"]
@@ -504,7 +519,19 @@ def calculate_delta_cfs(feature: dict[str, Any], as_of_ms: int,
     xs, ys = np.asarray(xs), np.asarray(ys)
     distances = np.hypot(xs, ys) / 1000.0
     active = distances <= max_distance_km
-    points = np.column_stack([xs, ys, np.full(len(cells), -receiver_depth_km * 1000.0)])
+    slab_depths = np.asarray(
+        [np.nan if c.get("slab2_depth_km") is None else c["slab2_depth_km"] for c in cells],
+        dtype=float,
+    )
+    slab_depth_valid = (
+        np.isfinite(slab_depths) & (slab_depths > 0.1) & (slab_depths <= 700.0)
+    )
+    effective_depths = np.where(slab_depth_valid, slab_depths, receiver_depth_km)
+    slab_orientation_valid = np.asarray([
+        c.get("slab2_strike_deg") is not None and c.get("slab2_dip_deg") is not None
+        for c in cells
+    ], dtype=bool)
+    points = np.column_stack([xs, ys, -effective_depths * 1000.0])
 
     # Alternative CMT nodal planes are separate mutually exclusive source
     # hypotheses; stress fields are not added together.
@@ -550,7 +577,17 @@ def calculate_delta_cfs(feature: dict[str, Any], as_of_ms: int,
         "delta_cfs_p10_mpa": cfs_p10,
         "delta_cfs_p90_mpa": cfs_p90,
         "coverage_fraction": float(np.isfinite(cfs).mean()),
-        "receiver_depth_km": receiver_depth_km,
+        "receiver_depth_km_default": receiver_depth_km,
+        "receiver_depth_source": "Slab2 depth where available; fixed fallback depth elsewhere",
+        "receiver_geometry_source": "Slab2 strike/dip with PB2002 scenario fallback",
+        "slab2_strike_dip_coverage_fraction": float(np.mean(slab_orientation_valid)),
+        "slab2_depth_coverage_fraction": float(np.mean(slab_depth_valid)),
+        "slab2_active_receiver_cells": int(np.sum(active & slab_orientation_valid)),
+        "active_cells": int(np.sum(active)),
+        "slab2_active_receiver_coverage_fraction": (
+            float(np.sum(active & slab_orientation_valid) / np.sum(active))
+            if np.any(active) else 0.0
+        ),
         "max_distance_km": max_distance_km,
         "effective_friction": EFFECTIVE_FRICTION,
         "shear_modulus_pa": MU_PA,
