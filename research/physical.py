@@ -193,6 +193,14 @@ def load_coupling_cloud(
                             "mm/yr-1": 1.0, "cm/yr-1": 10.0, "m/yr-1": 1000.0,
                         }
                         factor = conversion.get(units_compact)
+                        unit_inference = None
+                        if factor is None and any(token in key for token in (
+                            "_mm_yr", "_mm_year", "_mm_per_year",
+                        )):
+                            # Explicit variable-name suffix is an unambiguous unit.
+                            # Do not infer units from numerical magnitude alone.
+                            factor = 1.0
+                            unit_inference = "mm/yr_inferred_from_variable_name"
                         if factor is None:
                             result["unit_rejections"].append({
                                 "file": str(file), "variable": str(var),
@@ -206,6 +214,7 @@ def load_coupling_cloud(
                     result["variables_used"].append({
                         "file": str(file), "variable": str(var), "target": target,
                         "original_units": units or None,
+                        "unit_inference": unit_inference if target == "slip_deficit_mm_yr" else None,
                         "sampled_cells": int(np.sum(valid)),
                         "grid_type": "curvilinear" if lat_values.ndim == 2 else "rectilinear",
                     })
