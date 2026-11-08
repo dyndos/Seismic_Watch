@@ -6,7 +6,7 @@ This is a separate Python research runner. It does not change or run inside the 
 
 - **K0:** smoothed historical per-cell Poisson-rate baseline.
 - **K1:** K0 plus NNR-MORVEL56 relative plate-motion velocity, resolved into local boundary-normal and boundary-parallel components using the PB2002 geometry in the application.
-- **K2:** K1 plus Coupling Cloud coupling and slip-deficit grids. Rectilinear and 2D curvilinear NetCDF grids are sampled geodesically. Sparse physical coverage is retained as an explicitly labelled partial-coverage hybrid rather than discarded.
+- **K2:** K1 plus Coupling Cloud coupling/slip-deficit grids and USGS Slab2 interface strike, dip and depth. Coupling grids are sampled geodesically; GMT classic Slab2 grids are decoded and sampled onto the equal-area cells. Both source-specific and union coverage are reported. Sparse physical coverage is retained as an explicitly labelled partial-coverage hybrid rather than discarded.
 - **K3:** CUTDE elastic half-space coseismic stress transfer from time-valid USGS finite-fault products or a Global CMT moment-tensor source proxy. Slab2 provides receiver-interface strike, dip and depth where available; PB2002 boundary scenarios are the documented fallback.
 - **K4:** Dieterich rate-and-state response to the coseismic ΔCFS step. The interval model accounts for elapsed time since the triggering event. It does not yet ingest measured afterslip or viscoelastic stress histories.
 
@@ -38,10 +38,10 @@ The test suite checks plate velocity calculations and PB2002 code handling, as-o
 ## Run the historical hindcast
 
 Default settings:
-- training catalogue: 2000-01-01 through 2024-12-31, M>=6.5;
-- training catalogue: 2000-01-01 through 2025-12-31, M>=6.5;
-- cutoffs: all M>=6.5 events in 2010–2024 with a matched, timestamped Global CMT mechanism and a complete 365-day outcome window (no subsampling by default);
-- controls: first day of every month in 2010–2024;
+- training catalogue: 1976-01-01 through 2024-12-31, M>=6.5;
+- event catalogue and training history: 1976-01-01 through 2025-12-31, M>=6.5;
+- cutoffs: all M>=6.5 events in 2000–2024 with a matched, timestamped Global CMT mechanism and a complete 365-day outcome window (no subsampling by default);
+- controls: first day of every month in 2000–2024;
 - trigger cutoff: the later of origin time + 7 days or the Global CMT Q-/S- analysis timestamp;
 - horizons: 1, 3, 7, 14, 30, 90, 180 and 365 days;
 - primary grid: approximately 500-km equal-area cells (EPSG:6933);
@@ -50,7 +50,7 @@ Default settings:
 Run:
 
 ```bash
-python -m research.run_blind_test --start-year 2010 --end-year 2024 --max-triggers 0 --download-coupling --download-slab2
+python -m research.run_blind_test --start-year 2000 --end-year 2024 --max-triggers 0 --download-coupling --download-slab2
 ```
 
 To first make a smaller, quicker trial:
@@ -86,7 +86,7 @@ This is a **blind-style occurrence-time hindcast**, not a strict historical as-o
 
 Current Coupling Cloud and Slab2 data are modern geophysical products and were not necessarily available at historical cutoffs. Global CMT Q-/S- analysis timestamps are not exact public-release timestamps. K2-K4 are therefore separately labelled `retrospective_modern_geophysics`; do not compare them as if they were strict historical-information forecasts. K0/K1 are labelled `occurrence_time_hindcast`, which still carries the ComCat revision limitation.
 
-K2 uses partial-coverage status whenever Coupling Cloud observations cover less than 80% of the global grid. Outside the observed footprint, missing physical values are imputed by the regularized feature pipeline; K2 is therefore a hybrid model and must not be described as globally observed coupling. K3/K4 use a time-valid USGS product or a Global CMT Q-/S- analysis timestamp no later than the cutoff. That timestamp is an analysis-time proxy, not a guaranteed public-release timestamp. Slab2 receiver geometry is static modern data; PB2002 scenarios are used where Slab2 does not cover a cell. Missing source mechanisms or insufficient stress-field coverage are not silently replaced with zero stress.
+K2 combines Coupling Cloud and Slab2 physical features. Its coverage fields distinguish geodetic coupling, slab-interface geometry and their union. Outside the union footprint, missing physical values are imputed by the regularized feature pipeline; K2 is therefore a partial-coverage hybrid and must not be described as globally observed coupling or interface geometry. K3/K4 use a time-valid USGS product or a Global CMT Q-/S- analysis timestamp no later than the cutoff. That timestamp is an analysis-time proxy, not a guaranteed public-release timestamp. Slab2 receiver geometry is static modern data; PB2002 scenarios are used where Slab2 does not cover a cell. Missing source mechanisms or insufficient stress-field coverage are not silently replaced with zero stress.
 
 The grid-based baseline is deliberately simple. A complex model should be judged only by repeatable improvement over K0 across multiple cutoffs and regions. Overlapping time windows and triggered sequences are dependent; the aggregate means are descriptive and do not yet constitute formal confidence intervals or a prospective validation.
 
