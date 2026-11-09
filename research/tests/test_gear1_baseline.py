@@ -37,7 +37,9 @@ def test_gear1_uses_original_floor_and_floor_preserving_correction():
     s_floor = float(np.min(seismicity))
     t_floor = float(np.min(tectonic))
     expected_floor = max(s_floor**d * t_floor**(1.0 - d), min(s_floor, t_floor))
-    raw = seismicity**d * tectonic ** (1.0 - d)
+    raw = np.maximum(
+        seismicity**d * tectonic ** (1.0 - d), expected_floor
+    )
     expected_raw_integral = float(np.sum(raw * areas))
     expected_floor_integral = expected_floor * float(np.sum(areas))
     expected_target = meta["source_target_global_rate_per_year"]
