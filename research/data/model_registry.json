@@ -5,7 +5,16 @@
   "forecast_target": {
     "primary": "Probability of one or more earthquakes in a specified geographic region, magnitude range, and future time interval",
     "underlying_quantity": "spatiotemporal magnitude-conditioned event intensity lambda(x,t,M | D)",
-    "must_report": ["cumulative_probability", "non_overlapping_interval_probability", "expected_event_count", "magnitude_threshold_or_bin", "spatial_region_definition", "forecast_start_and_end", "uncertainty_interval", "data_support_level"],
+    "must_report": [
+      "cumulative_probability",
+      "non_overlapping_interval_probability",
+      "expected_event_count",
+      "magnitude_threshold_or_bin",
+      "spatial_region_definition",
+      "forecast_start_and_end",
+      "uncertainty_interval",
+      "data_support_level"
+    ],
     "note": "A high slip deficit or positive Coulomb stress change is a physical covariate, not itself a calibrated earthquake probability."
   },
   "legacy_models": [
@@ -15,7 +24,11 @@
       "implementation": "research/modeling.py",
       "current_status": "implemented",
       "target_role": "benchmark_only",
-      "known_limitations": ["Current cell counts are not a full time-dependent clustered model", "Current implementation does not resolve magnitude bins", "Must test catalog completeness and event dependence"],
+      "known_limitations": [
+        "Current cell counts are not a full time-dependent clustered model",
+        "Current implementation does not resolve magnitude bins",
+        "Must test catalog completeness and event dependence"
+      ],
       "production_eligible": false
     },
     {
@@ -24,7 +37,12 @@
       "implementation": "research/modeling.py and research/kinematics.py",
       "current_status": "implemented_legacy",
       "target_role": "ablation_candidate",
-      "known_limitations": ["Relative velocity features exist in only part of the current 500-km grid", "MORVEL is long-term rigid-plate motion, not present-day regional GNSS deformation", "PB2002 line geometry is not a mapped seismogenic fault inventory", "Current median imputer fills missing feature values"],
+      "known_limitations": [
+        "Relative velocity features exist in only part of the current 500-km grid",
+        "MORVEL is long-term rigid-plate motion, not present-day regional GNSS deformation",
+        "PB2002 line geometry is not a mapped seismogenic fault inventory",
+        "Current median imputer fills missing feature values"
+      ],
       "production_eligible": false
     },
     {
@@ -33,7 +51,12 @@
       "implementation": "research/modeling.py and research/physical.py",
       "current_status": "implemented_legacy",
       "target_role": "ablation_candidate_not_physical_ground_truth",
-      "known_limitations": ["Physical data union is sparse", "Current Poisson feature pipeline median-imputes missing physical values", "Coupling and slab variables refer to different geological objects and cannot be conflated", "Multiple Coupling Cloud datasets may be dependent"],
+      "known_limitations": [
+        "Physical data union is sparse",
+        "Current Poisson feature pipeline median-imputes missing physical values",
+        "Coupling and slab variables refer to different geological objects and cannot be conflated",
+        "Multiple Coupling Cloud datasets may be dependent"
+      ],
       "production_eligible": false
     },
     {
@@ -42,7 +65,13 @@
       "implementation": "research/physical.py",
       "current_status": "implemented_legacy",
       "target_role": "regional_experiment_only",
-      "known_limitations": ["Receiver faults are not a complete mapped inventory", "PB2002-derived receiver scenarios are assumptions", "Stress calculation radius is 2500 km", "The current product does not use spatially variable subfault slip by default", "Outside calculated stress coverage NaNs are converted to zero stress before applying the background rate"],
+      "known_limitations": [
+        "Receiver faults are not a complete mapped inventory",
+        "PB2002-derived receiver scenarios are assumptions",
+        "Stress calculation radius is 2500 km",
+        "The current product does not use spatially variable subfault slip by default",
+        "Outside calculated stress coverage NaNs are converted to zero stress before applying the background rate"
+      ],
       "production_eligible": false
     },
     {
@@ -51,28 +80,50 @@
       "implementation": "research/modeling.py and research/physical.py",
       "current_status": "implemented_legacy",
       "target_role": "regional_experiment_only",
-      "known_limitations": ["Depends on K3 receiver/source assumptions", "Uses a single coseismic stress step", "Uses broad parameter scenarios not calibrated by region", "Does not ingest measured afterslip, viscoelastic relaxation, fluid-pressure evolution or a complete stress history"],
+      "known_limitations": [
+        "Depends on K3 receiver/source assumptions",
+        "Uses a single coseismic stress step",
+        "Uses broad parameter scenarios not calibrated by region",
+        "Does not ingest measured afterslip, viscoelastic relaxation, fluid-pressure evolution or a complete stress history"
+      ],
       "production_eligible": false
     }
   ],
   "candidate_models": [
     {
       "id": "gear1-reproduction",
-      "name": "GEAR1-style global hybrid",
+      "name": "GEAR1 reproduction and modernized GEAR1-inspired global baseline",
       "method_family": "global_seismicity_plus_geodetic_strain",
-      "role": "global_baseline_candidate",
-      "required_inputs": ["versioned_global_catalogue", "global_geodetic_strain_model", "magnitude_completeness_model"],
-      "reference": "Bird et al. (2015), DOI 10.1785/0120150058",
-      "domain": "Global shallow M6-M9 activity-rate model; reproduce/modernize only after matching its published definitions",
-      "status": "not_implemented",
-      "evaluation_gate": "Reproduction against published benchmark and independent rolling-origin tests"
+      "role": "published_static_long_term_benchmark_then_global_baseline_candidate",
+      "required_inputs": [
+        "versioned_shallow_Mw_catalogue",
+        "Global_CMT_or_equivalent_moment_tensor_source_for_anisotropic_smoothing",
+        "GSRM_v2_1_or_licensed_compatible_global_geodetic_strain_field",
+        "tectonic_zone_classes_and_seismogenic_thickness_assumptions",
+        "catalogue_completeness_and_magnitude_threshold_definition"
+      ],
+      "reference": "Bird et al. (2015), DOI 10.1785/0120150058; reproduction materials in Dryad DOI 10.5061/dryad.cnp5hqcjb",
+      "domain": "Static long-term global shallow seismicity rate, depth <=70 km; published threshold Mw>=5.767; not time-dependent",
+      "status": "reproduction_pending",
+      "evaluation_gate": "First reproduce original published grid and scores/parameters. Then build a separately named modern variant, evaluate on rolling-origin periods and compare to K0, GEAR1 frozen baseline, and ETAS.",
+      "method": {
+        "seismicity_parent": "Kagan-Jackson anisotropic smoothing of shallow Global CMT events Mw>=5.767, 1977-2004; minimum background component is 1 percent of global shallow seismicity",
+        "tectonic_parent": "SHIFT-GSRM2f; geodetic strain-rate tensors converted to long-term seismic moment rate using elastic parameters, tectonic zone classes, coupled seismogenic thickness, and tectonic-class frequency-magnitude distributions",
+        "hybrid": "H_ij = normalize(max(S_ij^d * T_ij^(1-d), f)); preferred published d=0.6 on Seismicity and 0.4 on Tectonics",
+        "validation": "Original paper calibrated/tested hybrid against 2005-2012 Global CMT events; additional comparison against independent ISC-GEM events 1918-1976",
+        "time_behavior": "No explicit time dependence; total seismicity without declustering"
+      }
     },
     {
       "id": "global-etas",
       "name": "Global or regionally parameterized ETAS",
       "method_family": "self_exciting_point_process",
       "role": "time_dependent_clustered_seismicity_baseline",
-      "required_inputs": ["time_dependent_catalogue", "magnitude_completeness", "regionally stable_parameters"],
+      "required_inputs": [
+        "time_dependent_catalogue",
+        "magnitude_completeness",
+        "regionally stable_parameters"
+      ],
       "reference": "Ogata ETAS family; evaluate regional parameterization and global transfer",
       "domain": "Regions with sufficiently complete event catalogs; global version requires explicit regionalization/completeness handling",
       "status": "not_implemented",
@@ -83,7 +134,13 @@
       "name": "GSRM/GNSS strain-rate model",
       "method_family": "geodetic_deformation",
       "role": "global_physical_prior",
-      "required_inputs": ["strain_tensor", "observation_epoch", "reference_frame", "uncertainty", "spatial_support"],
+      "required_inputs": [
+        "strain_tensor",
+        "observation_epoch",
+        "reference_frame",
+        "uncertainty",
+        "spatial_support"
+      ],
       "reference": "Kreemer, Blewitt & Klein (2014), DOI 10.1002/2014GC005407",
       "domain": "GSRM v2.1 plus future compatible GNSS updates; preserve rigid/deforming domain masks",
       "status": "candidate_data_source",
@@ -94,7 +151,14 @@
       "name": "Regional fault/block model and interseismic slip deficit",
       "method_family": "geodetic_fault_loading",
       "role": "regional_physical_refinement",
-      "required_inputs": ["fault_or_interface_geometry", "gnss_velocities", "reference_frame", "observation_epoch", "locking_or_slip_deficit", "uncertainty"],
+      "required_inputs": [
+        "fault_or_interface_geometry",
+        "gnss_velocities",
+        "reference_frame",
+        "observation_epoch",
+        "locking_or_slip_deficit",
+        "uncertainty"
+      ],
       "reference": "Use region-specific published inversions; examples Li et al. (2025) for Tibet and Zhao et al. (2025) for Java-Timor",
       "domain": "Only within each inversion's published and resolution-tested domain",
       "status": "candidate_regional_models",
@@ -105,7 +169,13 @@
       "name": "Coseismic elastic stress transfer on explicit receiver faults",
       "method_family": "elastic_dislocation_and_coulomb_failure",
       "role": "event_triggered_physical_perturbation",
-      "required_inputs": ["finite_fault_subfault_slip", "receiver_fault_geometry_3d", "receiver_depth", "elastic_parameters", "friction_and_pore_pressure_scenarios"],
+      "required_inputs": [
+        "finite_fault_subfault_slip",
+        "receiver_fault_geometry_3d",
+        "receiver_depth",
+        "elastic_parameters",
+        "friction_and_pore_pressure_scenarios"
+      ],
       "reference": "Okada elastic dislocation family; CUTDE implementation may be retained after verification",
       "domain": "Only locations with defensible source rupture and receiver-fault geometry",
       "status": "legacy_partial_implementation",
@@ -116,7 +186,13 @@
       "name": "Dieterich rate-and-state response",
       "method_family": "state_dependent_triggered_rate",
       "role": "time_dependent_stress_response",
-      "required_inputs": ["calibrated_background_rate", "stress_history", "regional_a_sigma", "regional_characteristic_time", "parameter_uncertainty"],
+      "required_inputs": [
+        "calibrated_background_rate",
+        "stress_history",
+        "regional_a_sigma",
+        "regional_characteristic_time",
+        "parameter_uncertainty"
+      ],
       "reference": "Dieterich (1994), DOI 10.1029/93JB02581",
       "domain": "Only where stress history and regional parameters are sufficiently constrained",
       "status": "legacy_partial_implementation",
@@ -127,7 +203,13 @@
       "name": "Regional and global calibrated forecast ensemble",
       "method_family": "skill_weighted_ensemble",
       "role": "final_probability_product",
-      "required_inputs": ["eligible_model_probabilities", "data_quality_scores", "domain_masks", "dependency_graph", "rolling_origin_skill_scores"],
+      "required_inputs": [
+        "eligible_model_probabilities",
+        "data_quality_scores",
+        "domain_masks",
+        "dependency_graph",
+        "rolling_origin_skill_scores"
+      ],
       "reference": "CSEP-style prospective/rolling-origin evaluation and ensemble-weight optimization",
       "domain": "Global baseline plus region-specific eligible modules",
       "status": "not_implemented",
@@ -137,7 +219,15 @@
   "combination_rules": {
     "never_add_probabilities": true,
     "combine_intensities_or_calibrated_forecast_distributions": true,
-    "model_weights_depend_on": ["region", "tectonic_regime", "magnitude_bin", "forecast_horizon", "data_quality", "out_of_sample_skill", "model_dependence"],
+    "model_weights_depend_on": [
+      "region",
+      "tectonic_regime",
+      "magnitude_bin",
+      "forecast_horizon",
+      "data_quality",
+      "out_of_sample_skill",
+      "model_dependence"
+    ],
     "source_quality_scores_do_not_directly_subtract_from_probability": true,
     "missing_required_physical_input": "Model ineligible for affected cell/segment; retain global baseline and report no physical refinement",
     "correlated_sources": "Group by shared observations, catalog, inversion, or model lineage; downweight or jointly model their dependence",
