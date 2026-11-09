@@ -2,6 +2,9 @@
 
 This is a separate Python research runner. It does not change or run inside the Next.js application.
 
+> **Статус целевой архитектуры (2026-11-09):** текущие K0–K4 являются исследовательской legacy-реализацией и не должны трактоваться как готовые глобальные вероятностные прогнозы. По результатам аудита архива от 2026-11-08 K2 заполняет отсутствующие признаки медианами, а K3/K4 используют сценарные receiver faults и превращают NaN в ΔCFS в нулевой стресс перед расчетом базовой интенсивности. Эти механизмы будут заменены явными масками покрытия и статусами применимости. См. [аудит K0–K4](../docs/MODEL_AUDIT_K0_K4_RU.md), [целевую глобальную архитектуру](../docs/GLOBAL_FORECAST_ARCHITECTURE_RU.md), [реестр источников](data/source_registry.json) и [реестр моделей](data/model_registry.json).
+
+
 ## What is implemented
 
 - **K0:** smoothed historical per-cell Poisson-rate baseline.
