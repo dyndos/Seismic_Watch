@@ -1,13 +1,14 @@
-"""Exact GEAR1-style log-linear combination of two global parent rate grids.
+"""Reproduce the GEAR1 source-code blend from two prepared parent rate grids.
 
-Inputs are parent earthquake rate densities in events / km^2 / year on the
-same global grid. The parent grids must be fully defined and strictly positive;
-missing physical coverage is not imputed here. This module combines parents
-but does not recreate Kagan-Jackson smoothing or SHIFT-GSRM2f generation.
+This module reproduces only the final S/T hybrid operation in Bird's released
+GEAR1_for_CSEP source. It does NOT generate the Kagan-Jackson or SHIFT-GSRM2f
+parent maps. Inputs are event-rate densities in events / km^2 / year on the
+same global grid, with matching per-cell areas.
 """
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,19 +24,26 @@ def combine_parent_rates(
     seismicity_rate_density: np.ndarray,
     tectonic_rate_density: np.ndarray,
     cell_area_km2: np.ndarray,
-    target_global_rate_per_year: float,
     seismicity_exponent: float = PREFERRED_SEISMICITY_EXPONENT,
-    floor_rate_density: float | None = None,
-) -> tuple[np.ndarray, dict[str, float]]:
-    """Combine GEAR1 parent forecasts and normalize their global rate.
+    target_global_rate_override_per_year: float | None = None,
+) -> tuple[np.ndarray, dict[str, float | str]]:
+    """Apply the normalization used in Bird's released GEAR1 Fortran source.
 
-    The published log-linear combination is:
-        H' = max(S**d * T**(1-d), f)
-        H  = f + (H' - f) * (R - G*f) / (sum(A*H') - G*f)
+    With S and T denoting the two parent rate-density maps and A cell area,
+    the source computes:
 
-    where A is cell area, G=sum(A), R is the requested global event rate and
-    f is the minimum positive rate density. The preferred published GEAR1
-    exponent is d=0.6 on the smoothed seismicity parent.
+        R_S = sum(A*S); R_T = sum(A*T)
+        R_target = R_S**d * R_T**(1-d)
+        S_min = min(S); T_min = min(T)
+        H_floor = max(S_min**d * T_min**(1-d), min(S_min, T_min))
+        H_raw = S**d * T**(1-d)
+        H = H_floor + c * (H_raw - H_floor)
+
+    where c = (R_target - area(H_floor)) /
+              (area(H_raw) - area(H_floor)).
+
+    The optional target override is an experimental calibration variant, not
+    the default released-source GEAR1 normalization.
     """
     seismicity = np.asarray(seismicity_rate_density, dtype=np.float64)
     tectonic = np.asarray(tectonic_rate_density, dtype=np.float64)
@@ -45,62 +53,86 @@ def combine_parent_rates(
         raise ValueError("Both parent grids and cell areas must have identical shapes")
     if seismicity.size == 0:
         raise ValueError("Parent grids cannot be empty")
-    if not (0.0 <= seismicity_exponent <= 1.0):
-        raise ValueError("seismicity_exponent must be between 0 and 1")
+    if not np.isfinite(seismicity_exponent) or not (0.0 <= seismicity_exponent <= 1.0):
+        raise ValueError("seismicity_exponent must be finite and between 0 and 1")
     if not np.all(np.isfinite(seismicity)) or not np.all(np.isfinite(tectonic)):
         raise ValueError("Parent grids must be complete; NaN/inf inputs are not imputed")
     if np.any(seismicity <= 0.0) or np.any(tectonic <= 0.0):
         raise ValueError("Parent rate densities must be strictly positive")
     if not np.all(np.isfinite(area)) or np.any(area <= 0.0):
         raise ValueError("Every cell must have a finite positive area")
-    if not np.isfinite(target_global_rate_per_year) or target_global_rate_per_year <= 0:
-        raise ValueError("target_global_rate_per_year must be finite and positive")
 
-    floor = float(
-        min(np.min(seismicity), np.min(tectonic))
-        if floor_rate_density is None else floor_rate_density
+    d = float(seismicity_exponent)
+    tectonic_exponent = 1.0 - d
+    global_area = float(np.sum(area, dtype=np.float64))
+    seismicity_global_rate = float(np.sum(seismicity * area, dtype=np.float64))
+    tectonic_global_rate = float(np.sum(tectonic * area, dtype=np.float64))
+    if seismicity_global_rate <= 0.0 or tectonic_global_rate <= 0.0:
+        raise ValueError("Both parent maps must have positive global event rates")
+
+    source_target_rate = (
+        seismicity_global_rate**d * tectonic_global_rate**tectonic_exponent
     )
-    if not np.isfinite(floor) or floor <= 0:
-        raise ValueError("floor_rate_density must be finite and positive")
-
-    raw = np.maximum(
-        np.power(seismicity, seismicity_exponent)
-        * np.power(tectonic, 1.0 - seismicity_exponent),
-        floor,
-    )
-    earth_area = float(np.sum(area))
-    floor_integral = floor * earth_area
-    raw_integral = float(np.sum(raw * area))
-    excess = raw_integral - floor_integral
-    target_excess = target_global_rate_per_year - floor_integral
-
-    if target_excess < -1e-10:
-        raise ValueError(
-            "Target global rate is below the minimum floor integrated over Earth"
-        )
-    if excess <= 0.0:
-        if abs(target_excess) > 1e-10:
-            raise ValueError("Uniform floor parent cannot be normalized to requested rate")
-        combined = np.full_like(raw, floor)
-        scale = 0.0
+    if target_global_rate_override_per_year is None:
+        target_rate = source_target_rate
+        normalization_mode = "released_gear1_parent_integral_rule"
     else:
-        scale = max(0.0, target_excess / excess)
-        combined = floor + (raw - floor) * scale
+        target_rate = float(target_global_rate_override_per_year)
+        if not np.isfinite(target_rate) or target_rate <= 0.0:
+            raise ValueError("target_global_rate_override_per_year must be finite and positive")
+        normalization_mode = "experimental_global_rate_override"
 
-    achieved = float(np.sum(combined * area))
-    if not np.isclose(achieved, target_global_rate_per_year, rtol=1e-9, atol=1e-10):
+    seismicity_floor = float(np.min(seismicity))
+    tectonic_floor = float(np.min(tectonic))
+    hybrid_floor = max(
+        seismicity_floor**d * tectonic_floor**tectonic_exponent,
+        min(seismicity_floor, tectonic_floor),
+    )
+    raw = np.power(seismicity, d) * np.power(tectonic, tectonic_exponent)
+    floor_integral = hybrid_floor * global_area
+    raw_integral = float(np.sum(raw * area, dtype=np.float64))
+    denominator = raw_integral - floor_integral
+    numerator = target_rate - floor_integral
+
+    tolerance = max(1e-14, abs(target_rate) * 1e-12)
+    if denominator <= 0.0:
+        if abs(numerator) <= tolerance:
+            correction = 0.0
+            combined = np.full_like(raw, hybrid_floor)
+        else:
+            raise ValueError("The hybrid parent has no spatial contrast to normalize")
+    else:
+        if numerator < -tolerance:
+            raise ValueError(
+                "Target global rate is below the integrated GEAR1 hybrid floor"
+            )
+        correction = numerator / denominator
+        if not np.isfinite(correction) or correction < 0.0:
+            raise ValueError("GEAR1 floor-preserving normalization is not feasible")
+        combined = hybrid_floor + correction * (raw - hybrid_floor)
+
+    achieved = float(np.sum(combined * area, dtype=np.float64))
+    if not np.isclose(achieved, target_rate, rtol=1e-9, atol=tolerance):
         raise ArithmeticError(
-            f"Global-rate normalization failed: expected {target_global_rate_per_year}, got {achieved}"
+            f"Global-rate normalization failed: expected {target_rate}, got {achieved}"
         )
-    metadata = {
-        "seismicity_exponent": float(seismicity_exponent),
-        "tectonic_exponent": float(1.0 - seismicity_exponent),
-        "floor_rate_density_per_km2_year": floor,
-        "global_area_km2": earth_area,
+
+    metadata: dict[str, float | str] = {
+        "normalization_mode": normalization_mode,
+        "seismicity_exponent": d,
+        "tectonic_exponent": tectonic_exponent,
+        "seismicity_parent_global_rate_per_year": seismicity_global_rate,
+        "tectonic_parent_global_rate_per_year": tectonic_global_rate,
+        "source_target_global_rate_per_year": source_target_rate,
+        "target_global_rate_per_year": target_rate,
+        "seismicity_floor_rate_density_per_km2_year": seismicity_floor,
+        "tectonic_floor_rate_density_per_km2_year": tectonic_floor,
+        "hybrid_floor_rate_density_per_km2_year": hybrid_floor,
+        "global_area_km2": global_area,
         "raw_hybrid_global_rate_per_year": raw_integral,
-        "target_global_rate_per_year": float(target_global_rate_per_year),
+        "floor_integrated_rate_per_year": floor_integral,
+        "normalization_correction": float(correction),
         "achieved_global_rate_per_year": achieved,
-        "normalization_scale": float(scale),
     }
     return combined, metadata
 
@@ -141,8 +173,12 @@ def regional_probability_at_least_one(
     return float(-np.expm1(-np.sum(mu)))
 
 
-def run(parent_npz: Path, output_dir: Path, target_rate: float,
-        exponent: float = PREFERRED_SEISMICITY_EXPONENT) -> dict[str, Any]:
+def run(
+    parent_npz: Path,
+    output_dir: Path,
+    target_rate_override: float | None = None,
+    exponent: float = PREFERRED_SEISMICITY_EXPONENT,
+) -> dict[str, Any]:
     with np.load(parent_npz, allow_pickle=False) as archive:
         required = {"seismicity_rate_density", "tectonic_rate_density", "cell_area_km2"}
         missing = required - set(archive.files)
@@ -156,31 +192,33 @@ def run(parent_npz: Path, output_dir: Path, target_rate: float,
             for name in ("latitude", "longitude")
             if name in archive.files
         }
-    combined, meta = combine_parent_rates(s, t, a, target_rate, exponent)
+    combined, meta = combine_parent_rates(
+        s, t, a, exponent, target_global_rate_override_per_year=target_rate_override
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
+    mu30 = cell_expected_count(combined, a, 30.0)
+    mu90 = cell_expected_count(combined, a, 90.0)
     np.savez_compressed(
         output_dir / "gear1_style_baseline.npz",
         rate_density_per_km2_year=combined,
-        expected_count_30d=cell_expected_count(combined, a, 30.0),
-        probability_30d=poisson_probability_at_least_one(
-            cell_expected_count(combined, a, 30.0)
-        ),
-        expected_count_90d=cell_expected_count(combined, a, 90.0),
-        probability_90d=poisson_probability_at_least_one(
-            cell_expected_count(combined, a, 90.0)
-        ),
+        expected_count_30d=mu30,
+        probability_30d=poisson_probability_at_least_one(mu30),
+        expected_count_90d=mu90,
+        probability_90d=poisson_probability_at_least_one(mu90),
         cell_area_km2=a,
         **coords,
     )
+    digest = hashlib.sha256(parent_npz.read_bytes()).hexdigest()
     manifest = {
-        "schema_version": "1.0.0",
+        "schema_version": "1.1.0",
         "created_utc": datetime.now(timezone.utc).isoformat(),
-        "method": "GEAR1 published log-linear parent combination",
+        "method": "GEAR1 released-source S/T floor-preserving blend",
         "input_npz": str(parent_npz),
-        "input_sha256": __import__("hashlib").sha256(parent_npz.read_bytes()).hexdigest(),
+        "input_sha256": digest,
+        "reproduction_scope": "final parent-map combination only; parent-map generation is not implemented by this module",
         **meta,
         "time_dependence": "none; this is a stationary long-term rate surface",
-        "probability_conversion": "Poisson 1-exp(-mu); use only as a long-term rate conversion, not for clustered short-term ETAS counts",
+        "probability_conversion": "Poisson 1-exp(-mu); a rate conversion only, not an ETAS short-term forecast",
         "required_parent_provenance": [
             "seismicity parent source, catalogue window, magnitude/depth threshold, smoothing method and grid",
             "tectonic parent source, GSRM version, strain-rate units, tectonic classes, coupling/thickness assumptions and grid",
@@ -196,13 +234,17 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--parents", type=Path, required=True,
                         help="NPZ with global parent rates and per-cell areas")
-    parser.add_argument("--target-global-rate", type=float, required=True,
-                        help="Expected shallow events per year at the selected magnitude threshold")
+    parser.add_argument("--target-global-rate", type=float, default=None,
+                        help="Experimental override; omit to use the released GEAR1 parent-integral normalization")
     parser.add_argument("--seismicity-exponent", type=float, default=PREFERRED_SEISMICITY_EXPONENT)
     parser.add_argument("--output", type=Path, default=Path("research/outputs/gear1-baseline"))
     args = parser.parse_args()
     manifest = run(args.parents, args.output, args.target_global_rate, args.seismicity_exponent)
-    print(f"GEAR1-style baseline normalized to {manifest['achieved_global_rate_per_year']:.6g} events/year")
+    print(
+        f"GEAR1 hybrid normalized to "
+        f"{manifest['achieved_global_rate_per_year']:.6g} events/year "
+        f"({manifest['normalization_mode']})"
+    )
     print(args.output / "gear1_style_baseline.npz")
 
 
