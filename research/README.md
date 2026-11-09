@@ -17,6 +17,7 @@ K3/K4 use fixed material/receiver assumptions and scenario ensembles. They are r
 
 
 ## Глобальный каталог и подготовка baseline
+- Предварительный реальный аудит ComCat за 1976–2026: [docs/COMCAT_DIAGNOSTIC_1976_2026_RU.md](../docs/COMCAT_DIAGNOSTIC_1976_2026_RU.md). Он диагностический и не является однородным Mw-каталогом или прогнозом.
 
 Импорт официального ISC-GEM v13.0 и продолжение событий после его последней даты из USGS ComCat:
 
