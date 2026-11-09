@@ -15,6 +15,17 @@ This is a separate Python research runner. It does not change or run inside the 
 
 K3/K4 use fixed material/receiver assumptions and scenario ensembles. They are research approximations, not calibrated operational forecasts.
 
+
+## Глобальный каталог и подготовка baseline
+
+Импорт официального ISC-GEM v13.0 и продолжение событий после его последней даты из USGS ComCat:
+
+~~~bash
+python -m research.global_catalog --isc-main research/data/raw/iscgem-v13-main.csv --isc-supplement research/data/raw/iscgem-v13-supplement.csv --fetch-comcat --output research/outputs/global-catalogue
+~~~
+
+Подробные правила, ограничения, формат результатов и план воспроизведения GEAR1: [docs/GLOBAL_CATALOG_PIPELINE_RU.md](../docs/GLOBAL_CATALOG_PIPELINE_RU.md). Официальный ISC-GEM CSV нужно скачать вручную через форму ISC; исходные каталоги в Git не коммитить.
+
 ## Environment
 
 Python 3.12 is recommended. Install from the repository root:
