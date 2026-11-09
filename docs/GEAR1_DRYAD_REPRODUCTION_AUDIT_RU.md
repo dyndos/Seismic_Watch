@@ -2,7 +2,7 @@
 
 **Дата проверки:** 2026-11-09  
 **Архив:** Bird_archive_for_Dryad.zip, предоставлен пользователем  
-**Публикация архива:** Peter Bird, *Kinematic and dynamic modeling of lithosphere deformation: Tools and results*, Dryad, DOI https://doi.org/10.5061/dryad.cnp5hqcjb. <Cite refs={["turn345454search3"]}/>
+**Публикация архива:** Peter Bird, *Kinematic and dynamic modeling of lithosphere deformation: Tools and results*, Dryad, DOI https://doi.org/10.5061/dryad.cnp5hqcjb. (описание набора Dryad: https://datadryad.org/dataset/doi:10.5061/dryad.cnp5hqcjb)
 
 ## 1. Результат в одном абзаце
 
@@ -18,7 +18,7 @@
 
 В других каталогах находятся исходники SHIFT_GSRM2f и Sphere, данные PB2002, GSRM2.1, underwater mask, а также данные Kagan–Jackson.
 
-Согласно авторской инструкции, оригинальные Windows x64 exe требуют ориентировочно 5–6 GB общей RAM и выполняются около двух суток в sequential режиме или 3–12 часов в parallel режиме. Пиковая оценка использования памяти в инструкции — примерно 3,8 GB. Итоговый CSEP XML ожидается размером около 3,8 GB. <Cite refs={["turn345454search3","turn345454search25"]}/>
+Согласно авторской инструкции, оригинальные Windows x64 exe требуют ориентировочно 5–6 GB общей RAM и выполняются около двух суток в sequential режиме или 3–12 часов в parallel режиме. Пиковая оценка использования памяти в инструкции — примерно 3,8 GB. Итоговый CSEP XML ожидается размером около 3,8 GB. (авторская инструкция в архиве; статья: https://doi.org/10.1785/0120150058)
 
 ## 3. Шесть входов, требуемых GEAR1
 
@@ -44,7 +44,7 @@
 
 ## 4. Важное различие между статьей 2015 года и обновленным исходником
 
-В статье Bird et al. (2015) описаны 4 602 события GCMT Mw ≥ 5.767 за 1977–2004 годы для первоначальной оптимизации Seismicity/Tectonics blend и оценка прогнозных результатов на 2005–2012 годах. <Cite refs={["turn345454search24","turn345454search0"]}/>
+В статье Bird et al. (2015) описаны 4 602 события GCMT Mw ≥ 5.767 за 1977–2004 годы для первоначальной оптимизации Seismicity/Tectonics blend и оценка прогнозных результатов на 2005–2012 годах. (Bird et al., 2015: https://doi.org/10.1785/0120150058)
 
 Предоставленный исходник GEAR1, написанный в 2014 году, использует обновленную базу GCMT за 1977–2013 годы — 6 476 событий — и обновленную карту Kagan–Jackson, рассчитанную к маю 2014 года. Нельзя подменять одно число другим: это разные периоды на разных этапах научной работы.
 
@@ -101,13 +101,13 @@
 
 | Компонент | Статус |
 |---|---|
-| Архив и все шесть входов | <badge color="success">проверено</badge> |
-| SHA-256 / структура / число строк | <badge color="success">проверено</badge> |
+| Архив и все шесть входов | **проверено** |
+| SHA-256 / структура / число строк | **проверено** |
 | Оригинальный исходник | <badge color="success">получен</badge> |
 | GNU Fortran compile/link | <badge color="success">сборка прошла</badge> |
-| Intel VSL-identical RNG | <badge color="warning">не подтверждено</badge> |
-| Воспроизведение S и T parent maps | <badge color="warning">не завершено</badge> |
-| Полный CSEP XML и сравнение с эталоном | <badge color="warning">не выполнено</badge> |
+| Intel VSL-identical RNG | **не подтверждено** |
+| Воспроизведение S и T parent maps | **не завершено** |
+| Полный CSEP XML и сравнение с эталоном | **не выполнено** |
 
 Следующие шаги:
 1. Сделать воспроизводимый build/compatibility patch, не изменяя авторский исходник в архиве.
