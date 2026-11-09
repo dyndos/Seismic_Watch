@@ -1,0 +1,48 @@
+name: Global catalogue completeness audit
+
+on:
+  push:
+    branches:
+      - feature/global-forecast-foundation
+    paths:
+      - "research/global_catalog.py"
+      - "research/tests/test_global_catalog_comcat_only.py"
+      - ".github/workflows/global-catalogue-audit.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: global-catalogue-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  comcat-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install minimal dependencies
+        run: python -m pip install --upgrade pip requests
+      - name: Run current global ComCat diagnostic
+        run: |
+          python -m research.global_catalog \
+            --comcat-only \
+            --fetch-comcat \
+            --comcat-start 1976-01-01 \
+            --comcat-min-magnitude 5.0 \
+            --output research/outputs/global-catalogue-comcat
+      - name: Upload versioned catalogue audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: global-comcat-catalogue-audit
+          path: research/outputs/global-catalogue-comcat/
+          if-no-files-found: warn
+          retention-days: 14
