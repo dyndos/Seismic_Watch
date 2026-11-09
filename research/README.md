@@ -26,6 +26,21 @@ python -m research.global_catalog --isc-main research/data/raw/iscgem-v13-main.c
 
 Подробные правила, ограничения, формат результатов и план воспроизведения GEAR1: [docs/GLOBAL_CATALOG_PIPELINE_RU.md](../docs/GLOBAL_CATALOG_PIPELINE_RU.md). Официальный ISC-GEM CSV нужно скачать вручную через форму ISC; исходные каталоги в Git не коммитить.
 
+
+### GEAR1 parent-rate combiner
+
+After recreating the two parent rate surfaces from the original GEAR1 archive, combine them with the published log-linear method:
+
+~~~bash
+python -m research.gear1_baseline \
+  --parents research/outputs/gear1-parents/parents.npz \
+  --target-global-rate <validated-events-per-year> \
+  --seismicity-exponent 0.6 \
+  --output research/outputs/gear1-baseline
+~~~
+
+The NPZ must contain complete, strictly positive arrays named `seismicity_rate_density`, `tectonic_rate_density`, and `cell_area_km2`; optional `latitude` and `longitude` arrays are carried into the output. The module refuses missing values instead of imputing them. The target global rate must be validated against the source experiment, not guessed. See [the global catalogue and GEAR1 plan](../docs/GLOBAL_CATALOG_PIPELINE_RU.md).
+
 ## Environment
 
 Python 3.12 is recommended. Install from the repository root:
