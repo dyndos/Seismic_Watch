@@ -330,19 +330,130 @@ def run(isc_main: Path, output: Path, isc_supplement: Path | None = None,
     return manifest
 
 
+
+def run_comcat_only(output: Path, start_date: str = "1976-01-01",
+                    min_mag: float = 5.0) -> dict[str, Any]:
+    """Create a modern ComCat-only diagnostic snapshot without ISC-GEM input."""
+    output.mkdir(parents=True, exist_ok=True)
+    end_date = datetime.now(timezone.utc).date().isoformat()
+    payload, fetch_meta = fetch_comcat(start_date, end_date, min_mag)
+    snapshot = output / "comcat_current_snapshot.geojson"
+    snapshot.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    records, parse_meta = parse_comcat(snapshot, min_mag)
+    fetch_meta.update(parse_meta)
+
+    annual, decadal = audit_counts(records)
+    spatial = spatial_counts(records)
+    write_csv(output / "global_catalogue_normalized.csv", records)
+    write_csv(output / "annual_global_counts.csv", annual)
+    write_csv(output / "spatial_counts_5deg.csv", spatial)
+
+    mw_count = sum(bool(row["mw_eligible"]) for row in records)
+    years = sorted({_year(row) for row in records})
+    manifest = {
+        "schema_version": "1.0.0",
+        "created_utc": datetime.now(timezone.utc).isoformat(),
+        "catalogue_mode": "modern_comcat_only_diagnostic",
+        "comcat": fetch_meta,
+        "snapshot": {
+            "path": snapshot.name,
+            "sha256": sha256_file(snapshot),
+            "feature_count": len(payload.get("features") or []),
+        },
+        "counts": {
+            "comcat_records": len(records),
+            "mw_eligible": mw_count,
+            "mw_excluded_by_type": len(records) - mw_count,
+        },
+        "year_range": [years[0], years[-1]] if years else None,
+        "thresholds": list(THRESHOLDS),
+        "shallow_depth_km": [0, MAX_SHALLOW_KM],
+        "magnitude_rule": "Only preferred magnitude types mw/mww/mwc/mwb/mwr enter Mw-threshold counts; all other types are retained but excluded from Mw counts.",
+        "limitations": [
+            "This is a current ComCat snapshot. Preferred magnitudes, event locations and products may be revised after origin time.",
+            "The snapshot is not a historical as-of catalogue and must not be used as a strict blind hindcast input.",
+            "ComCat magnitude types and completeness vary across time, region and network; this output is an audit diagnostic only.",
+            "Annual global totals do not establish spatially varying magnitude completeness.",
+            "Unknown depth is not assumed shallow; missing Mw is not imputed.",
+            "This pipeline does not yet generate calibrated earthquake probabilities.",
+        ],
+        "files": [
+            "comcat_current_snapshot.geojson",
+            "global_catalogue_normalized.csv",
+            "annual_global_counts.csv",
+            "spatial_counts_5deg.csv",
+            "catalog_manifest.json",
+            "catalog_audit.md",
+        ],
+    }
+    (output / "catalog_manifest.json").write_text(
+        json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
+
+    lines = [
+        "# Global ComCat-only catalogue audit",
+        "",
+        f"Created: {manifest['created_utc']}",
+        f"Period: {manifest['year_range']}",
+        f"ComCat records: {len(records):,}; Mw-eligible: {mw_count:,}; excluded non-Mw magnitude types: {len(records) - mw_count:,}",
+        "",
+        "This is a modern current ComCat snapshot, not a historical as-of catalogue.",
+        "Counts are shallow (depth <=70 km) and include only Mw-equivalent preferred magnitude types.",
+        "Annual totals are diagnostics, not a formal spatially varying completeness estimate.",
+        "",
+        "| Period | " + " | ".join(f"Mw>={x:.1f}" for x in THRESHOLDS) + " |",
+        "|---|" + "---:|" * len(THRESHOLDS),
+    ]
+    for row in decadal:
+        lines.append(
+            "| " + row["period"] + " | "
+            + " | ".join(str(row[f"mw_ge_{threshold:.1f}"]) for threshold in THRESHOLDS)
+            + " |"
+        )
+    lines.extend([
+        "",
+        "## Safeguards",
+        "",
+        "- Do not infer one global magnitude-of-completeness threshold from global event totals.",
+        "- Compare counts by tectonic region and time; network density and reporting practices differ.",
+        "- Do not convert mb, Ms or other non-Mw magnitude types without a documented conversion model.",
+        "- Do not treat this current ComCat response as a strict historical as-of snapshot.",
+        "- GEAR1 is a static long-term model, not a short-term aftershock forecast.",
+        "",
+        "## Provenance",
+        "",
+        "USGS ComCat FDSN Event Web Service: https://earthquake.usgs.gov/fdsnws/event/1/",
+        "GEAR1: https://doi.org/10.1785/0120150058",
+        f"Snapshot SHA-256: {manifest['snapshot']['sha256']}",
+        "",
+    ])
+    (output / "catalog_audit.md").write_text("\\n".join(lines), encoding="utf-8")
+    return manifest
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--isc-main", type=Path, required=True)
+    p.add_argument("--isc-main", type=Path)
     p.add_argument("--isc-supplement", type=Path)
     p.add_argument("--comcat-geojson", type=Path)
     p.add_argument("--fetch-comcat", action="store_true")
+    p.add_argument("--comcat-only", action="store_true",
+                   help="Run an explicitly modern ComCat-only diagnostic without ISC-GEM")
     p.add_argument("--comcat-start", default="2023-01-01")
     p.add_argument("--comcat-min-magnitude", type=float, default=5.0)
     p.add_argument("--output", type=Path, default=Path("research/outputs/global-catalogue"))
     a = p.parse_args()
-    result = run(a.isc_main, a.output, a.isc_supplement, a.comcat_geojson,
-                 a.fetch_comcat, a.comcat_start, a.comcat_min_magnitude)
-    print(f"Catalogue prepared: {result['counts']['combined']} events; {result['counts']['mw_eligible']} Mw-eligible")
+    if a.comcat_only:
+        if not a.fetch_comcat:
+            p.error("--comcat-only requires --fetch-comcat")
+        result = run_comcat_only(a.output, a.comcat_start, a.comcat_min_magnitude)
+        print(f"Modern ComCat diagnostic: {result['counts']['comcat_records']} events; {result['counts']['mw_eligible']} Mw-eligible")
+    else:
+        if a.isc_main is None:
+            p.error("--isc-main is required unless --comcat-only is selected")
+        result = run(a.isc_main, a.output, a.isc_supplement, a.comcat_geojson,
+                     a.fetch_comcat, a.comcat_start, a.comcat_min_magnitude)
+        print(f"Catalogue prepared: {result['counts']['combined']} events; {result['counts']['mw_eligible']} Mw-eligible")
     print(a.output / "catalog_audit.md")
 
 
