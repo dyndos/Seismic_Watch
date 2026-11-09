@@ -6,8 +6,8 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE_REGISTRY = ROOT / "data" / "source_registry.json"
-MODEL_REGISTRY = ROOT / "data" / "model_registry.json"
+SOURCE_REGISTRY = ROOT / "research" / "data" / "source_registry.json"
+MODEL_REGISTRY = ROOT / "research" / "data" / "model_registry.json"
 
 SOURCE_FIELDS = {
     "id", "name", "kind", "status", "scope", "variables",
