@@ -294,7 +294,7 @@ def run(isc_main: Path, output: Path, isc_supplement: Path | None = None,
     write_csv(output / "spatial_counts_5deg.csv", spatial)
     mw_count = sum(bool(x["mw_eligible"]) for x in rows)
     manifest = {
-        "schema_version": "1.0.0",
+        "schema_version": "1.1.0",
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "isc_gem_release": "Version 13.0, 2026-10-21",
         "isc_main": isc_meta, "isc_supplement": supplement_meta,
@@ -376,7 +376,7 @@ def run_comcat_only(output: Path, start_date: str = "1976-01-01",
     mw_count = sum(bool(row["mw_eligible"]) for row in records)
     years = sorted({_year(row) for row in records})
     manifest = {
-        "schema_version": "1.0.0",
+        "schema_version": "1.1.0",
         "created_utc": datetime.now(timezone.utc).isoformat(),
         "catalogue_mode": "modern_comcat_only_diagnostic",
         "comcat": fetch_meta,
