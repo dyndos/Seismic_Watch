@@ -55,6 +55,6 @@ def test_comcat_only_audit_writes_snapshot_and_marks_it_as_modern(monkeypatch, t
     assert (tmp_path / "spatial_counts_5deg.csv").is_file()
     report = (tmp_path / "catalog_audit.md").read_text(encoding="utf-8")
     assert "current ComCat snapshot" in report
-    assert "\\n".join(["## Safeguards", ""]) in report
+    assert "## Safeguards" in report
     manifest = json.loads((tmp_path / "catalog_manifest.json").read_text(encoding="utf-8"))
     assert manifest["counts"]["mw_excluded_by_type"] == 1
