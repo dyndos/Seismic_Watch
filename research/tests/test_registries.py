@@ -6,3 +6,4 @@ def test_source_and_model_registries_are_valid():
     assert counts["sources"] >= 10
     assert counts["legacy_models"] == 5
     assert counts["candidate_models"] >= 5
+    assert counts["quality_dimensions"] == 6
