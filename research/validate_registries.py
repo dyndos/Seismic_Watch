@@ -8,6 +8,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_REGISTRY = ROOT / "research" / "data" / "source_registry.json"
 MODEL_REGISTRY = ROOT / "research" / "data" / "model_registry.json"
+QUALITY_POLICY = ROOT / "research" / "data" / "quality_scoring_policy.json"
 
 SOURCE_FIELDS = {
     "id", "name", "kind", "status", "scope", "variables",
@@ -41,9 +42,11 @@ def _check_unique(records: list[dict[str, Any]], label: str) -> None:
 def validate_registries(
     source_path: Path = SOURCE_REGISTRY,
     model_path: Path = MODEL_REGISTRY,
+    quality_path: Path = QUALITY_POLICY,
 ) -> dict[str, int]:
     sources_doc = _load(source_path)
     models_doc = _load(model_path)
+    quality_doc = _load(quality_path)
 
     sources = sources_doc.get("sources")
     legacy = models_doc.get("legacy_models")
@@ -93,10 +96,22 @@ def validate_registries(
     if rules.get("source_quality_scores_do_not_directly_subtract_from_probability") is not True:
         raise ValueError("Source quality score must not directly subtract from probability")
 
+    score = quality_doc.get("source_quality_score", {})
+    dimensions = score.get("penalty_dimensions", [])
+    if score.get("starting_score") != 100 or score.get("maximum") != 100:
+        raise ValueError("Source quality score must use a 0-100 scale")
+    if sum(int(x.get("maximum_penalty_points", 0)) for x in dimensions) != 100:
+        raise ValueError("Source quality penalty dimensions must sum to 100 points")
+    if not quality_doc.get("hard_exclusions"):
+        raise ValueError("Quality policy must define hard exclusion rules")
+    if quality_doc.get("model_weighting", {}).get("separate_from_source_quality_score") is not True:
+        raise ValueError("Model forecast skill must be scored separately from source quality")
+
     return {
         "sources": len(sources),
         "legacy_models": len(legacy),
         "candidate_models": len(candidates),
+        "quality_dimensions": len(dimensions),
     }
 
 
