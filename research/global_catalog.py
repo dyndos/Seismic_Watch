@@ -427,7 +427,7 @@ def run_comcat_only(output: Path, start_date: str = "1976-01-01",
         f"Snapshot SHA-256: {manifest['snapshot']['sha256']}",
         "",
     ])
-    (output / "catalog_audit.md").write_text("\\n".join(lines), encoding="utf-8")
+    (output / "catalog_audit.md").write_text("\n".join(lines), encoding="utf-8")
     return manifest
 
 
