@@ -191,7 +191,7 @@
         "Only about 14 percent of Earth's surface is allowed to deform in the model; the rest is represented by rigid spherical caps",
         "Open download has non-commercial/share-alike license restrictions"
       ],
-      "license": "GEM open version listed as CC BY-NC-SA 4.0; verify the exact downloaded package license",
+      "license": "The exact GSRM_average_strain_v2.1.txt asset used by the Bird GEAR1 archive declares CC BY-NC-SA 3.0 (unported); preserve this asset-specific license and verify permissions before redistribution or commercial use",
       "reference_urls": [
         "https://www.globalquakemodel.org/product/gsrm",
         "https://geodesy.unr.edu/cornekreemer/gsrm.htm",
