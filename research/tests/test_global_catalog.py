@@ -88,6 +88,7 @@ def test_comcat_only_explicit_mw_types_enter_mw_counts(tmp_path):
     assert rows[0]["mw_eligible"] is True
     assert rows[1]["mw_eligible"] is False
     assert rows[1]["mw"] is None
+    assert rows[1]["reported_magnitude"] == 6.8
 
 
 def test_global_catalogue_audit_keeps_unknown_depth_out_of_shallow_counts(tmp_path):
