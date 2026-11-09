@@ -36,7 +36,7 @@ def combine_parent_rates(
         R_target = R_S**d * R_T**(1-d)
         S_min = min(S); T_min = min(T)
         H_floor = max(S_min**d * T_min**(1-d), min(S_min, T_min))
-        H_raw = S**d * T**(1-d)
+        H_raw = max(S**d * T**(1-d), H_floor)
         H = H_floor + c * (H_raw - H_floor)
 
     where c = (R_target - area(H_floor)) /
