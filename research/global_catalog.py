@@ -6,6 +6,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 COMCAT_URL = "https://earthquake.usgs.gov/fdsnws/event/1/query"
 MW_TYPES = {"mw", "mww", "mwc", "mwb", "mwr"}
@@ -150,17 +152,35 @@ def _fetch_window(session: requests.Session, start: datetime, end: datetime,
         return features
     if depth <= 0 or end - start <= timedelta(days=1):
         raise RuntimeError(f"ComCat limit reached for {start.isoformat()} to {end.isoformat()}")
-    midpoint_second = int((start + (end - start) / 2).timestamp())\n    mid = datetime.fromtimestamp(midpoint_second, tz=timezone.utc)\n    if mid < start or mid >= end:\n        raise RuntimeError(f"Unable to split dense ComCat interval {start.isoformat()}..{end.isoformat()}")\n    return (_fetch_window(session, start, mid, min_mag, depth - 1)\n            + _fetch_window(session, mid + timedelta(seconds=1), end, min_mag, depth - 1))\n
+    midpoint_second = int((start + (end - start) / 2).timestamp())
+    mid = datetime.fromtimestamp(midpoint_second, tz=timezone.utc)
+    if mid < start or mid >= end:
+        raise RuntimeError(f"Unable to split dense ComCat interval {start.isoformat()}..{end.isoformat()}")
+    return (_fetch_window(session, start, mid, min_mag, depth - 1)
+            + _fetch_window(session, mid + timedelta(seconds=1), end, min_mag, depth - 1))
+
 
 def fetch_comcat(start_date: str, end_date: str, min_mag: float) -> tuple[Path, dict[str, Any]]:
     start = parse_time(start_date + "T00:00:00Z")
     end = parse_time(end_date + "T23:59:59Z")
     session, features = requests.Session(), []
+    retry = Retry(
+        total=6, connect=6, read=6, status=6, backoff_factor=2.0,
+        status_forcelist=(429, 500, 502, 503, 504),
+        allowed_methods=frozenset({"GET"}),
+        respect_retry_after_header=True,
+    )
+    session.mount("https://", HTTPAdapter(max_retries=retry))
     cursor = start
     while cursor <= end:
         year_end = datetime(cursor.year, 12, 31, 23, 59, 59, tzinfo=timezone.utc)
         chunk_end = min(end, year_end)
-        if chunk_end < cursor:\n            raise RuntimeError(f"Invalid ComCat year chunk: start {cursor.isoformat()} exceeds end {chunk_end.isoformat()}")\n        features.extend(_fetch_window(session, cursor, chunk_end, min_mag))\n        # FDSN timestamps are queried at one-second precision and endtime is inclusive.\n        cursor = chunk_end + timedelta(seconds=1)\n    unique = {str(x.get("id")): x for x in features if x.get("id")}
+        if chunk_end < cursor:
+            raise RuntimeError(f"Invalid ComCat year chunk: start {cursor.isoformat()} exceeds end {chunk_end.isoformat()}")
+        features.extend(_fetch_window(session, cursor, chunk_end, min_mag))
+        # FDSN timestamps are queried at one-second precision and endtime is inclusive.
+        cursor = chunk_end + timedelta(seconds=1)
+    unique = {str(x.get("id")): x for x in features if x.get("id")}
     payload = {"type": "FeatureCollection", "metadata": {
         "source": "USGS ComCat", "start": start.isoformat(), "end": end.isoformat(),
         "min_magnitude": min_mag, "retrieved_utc": datetime.now(timezone.utc).isoformat()
