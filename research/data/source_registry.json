@@ -365,11 +365,11 @@
       "name": "Peter Bird — Kinematic and dynamic modeling of lithosphere deformation: Tools and results",
       "kind": "research_archive_and_published_forecast_reproduction",
       "status": "downloaded_archive_verified_inputs_and_source",
-      "scope": "Downloaded and inspected archive; GEAR1 source, parameters, instructions and six execution inputs verified; full numerical output reproduction remains pending",
+      "scope": "Downloaded and inspected archive; GEAR1 source, parameters, instructions and six execution inputs verified; final CSEP XML is not included and full numerical output reproduction remains pending",
       "variables": [
         "GEAR1_source_code",
         "GEAR1_parameters",
-        "published_GEAR1_forecast_grid",
+        "smoothed_seismicity_parent_grid",
         "GSRM_v2_1_input",
         "SHIFT_GSRM2f_source_and_inputs"
       ],
