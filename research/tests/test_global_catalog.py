@@ -35,6 +35,9 @@ def test_isc_gem_duplicate_quality_columns_are_parsed_positionally(tmp_path):
     assert rows[0]["mw"] == 6.7
     assert rows[0]["mw_unc"] == 0.1
     assert rows[0]["mw_quality"] == "A"
+    assert rows[0]["reported_magnitude"] == 6.7
+    assert rows[0]["mw_solution_code"] == "d"
+    assert rows[0]["mw_source"] == "gcmt"
     assert rows[0]["source_record_id"] == "101"
 
 
@@ -49,6 +52,7 @@ def test_supplementary_events_are_not_mw_eligible(tmp_path):
     rows, manifest = read_isc_csv(path, supplementary=True)
     assert manifest["role"] == "supplement_only_not_used_for_rate_fit"
     assert rows[0]["mw"] is None
+    assert rows[0]["reported_magnitude"] == 6.5
     assert rows[0]["mw_eligible"] is False
 
 
@@ -105,3 +109,28 @@ def test_global_catalogue_audit_keeps_unknown_depth_out_of_shallow_counts(tmp_pa
     assert (output / "catalog_audit.md").is_file()
     annual = (output / "annual_global_counts.csv").read_text(encoding="utf-8-sig")
     assert "2000" in annual and "2001" in annual
+
+
+
+def test_run_exports_supplementary_catalogue_separately(tmp_path):
+    main = tmp_path / "main.csv"
+    supplement = tmp_path / "supplement.csv"
+    main.write_text(
+        HEADER + "\n"
+        + _isc_row("2001-02-03 04:05:06.70", 12.5, 130.1, 18.0, 6.7, 101)
+        + "\n",
+        encoding="utf-8",
+    )
+    supplement.write_text(
+        HEADER + "\n"
+        + _isc_row("2005-01-01 00:00:00", -5.0, 105.0, 20.0, 6.5, 202, quality="D")
+        + "\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "out"
+    manifest = run(main, output, isc_supplement=supplement)
+    assert manifest["counts"]["supplementary_uncertain"] == 1
+    supplementary_path = output / "supplementary_catalogue_normalized.csv"
+    assert supplementary_path.is_file()
+    text = supplementary_path.read_text(encoding="utf-8-sig")
+    assert "6.5" in text
