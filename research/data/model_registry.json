@@ -104,15 +104,16 @@
       ],
       "reference": "Bird et al. (2015), DOI 10.1785/0120150058; reproduction materials in Dryad DOI 10.5061/dryad.cnp5hqcjb",
       "domain": "Static long-term global shallow seismicity rate, depth <=70 km; published threshold Mw>=5.767; not time-dependent",
-      "status": "reproduction_pending",
-      "evaluation_gate": "First reproduce original published grid and scores/parameters. Then build a separately named modern variant, evaluate on rolling-origin periods and compare to K0, GEAR1 frozen baseline, and ETAS.",
+      "status": "combiner_implemented_parent_generation_pending",
+      "evaluation_gate": "Reproduce original parent grids and published hybrid using Dryad source/archive; verify spatial grid, rate units, floor, global normalization and d=0.6; then validate against independent rolling-origin periods.",
       "method": {
         "seismicity_parent": "Kagan-Jackson anisotropic smoothing of shallow Global CMT events Mw>=5.767, 1977-2004; minimum background component is 1 percent of global shallow seismicity",
         "tectonic_parent": "SHIFT-GSRM2f; geodetic strain-rate tensors converted to long-term seismic moment rate using elastic parameters, tectonic zone classes, coupled seismogenic thickness, and tectonic-class frequency-magnitude distributions",
         "hybrid": "H_ij = normalize(max(S_ij^d * T_ij^(1-d), f)); preferred published d=0.6 on Seismicity and 0.4 on Tectonics",
         "validation": "Original paper calibrated/tested hybrid against 2005-2012 Global CMT events; additional comparison against independent ISC-GEM events 1918-1976",
         "time_behavior": "No explicit time dependence; total seismicity without declustering"
-      }
+      },
+      "implementation": "research/gear1_baseline.py (parent-grid combination implemented; generation/reproduction of both parent grids remains pending)"
     },
     {
       "id": "global-etas",
