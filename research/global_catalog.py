@@ -79,9 +79,12 @@ def read_isc_csv(path: Path, supplementary: bool = False) -> tuple[list[dict[str
                 "origin_time": origin.isoformat().replace("+00:00", "Z"),
                 "latitude": lat, "longitude": lon, "depth_km": depth,
                 "mw": None if supplementary else mw,
+                "reported_magnitude": mw,
                 "mw_unc": number(row[11]),
                 "mw_quality": row[12] or None,
-                "mw_source": row[13] or None,
+                # ISC-GEM columns: s (row 13) and mo_auth (row 16) are distinct.
+                "mw_solution_code": row[13] or None,
+                "mw_source": row[16] or None,
                 "magnitude_type": "Mw",
                 "mw_eligible": bool(mw is not None and not supplementary),
                 "source_record_id": event_id,
@@ -126,7 +129,7 @@ def parse_comcat(path: Path, min_mag: float) -> tuple[list[dict[str, Any]], dict
             "event_id": f"comcat:{event_id}", "source": "USGS-ComCat",
             "origin_time": origin.isoformat().replace("+00:00", "Z"),
             "latitude": lat, "longitude": lon, "depth_km": depth,
-            "mw": mag if valid else None, "mw_unc": None,
+            "mw": mag if valid else None, "reported_magnitude": mag, "mw_unc": None,
             "mw_quality": props.get("reviewstatus"), "mw_source": props.get("net"),
             "magnitude_type": typ, "mw_eligible": valid, "source_record_id": event_id,
         })
@@ -285,6 +288,8 @@ def run(isc_main: Path, output: Path, isc_supplement: Path | None = None,
     annual, decadal = audit_counts(rows)
     spatial = spatial_counts(rows)
     write_csv(output / "global_catalogue_normalized.csv", rows)
+    if isc_supplement and supplement:
+        write_csv(output / "supplementary_catalogue_normalized.csv", supplement)
     write_csv(output / "annual_global_counts.csv", annual)
     write_csv(output / "spatial_counts_5deg.csv", spatial)
     mw_count = sum(bool(x["mw_eligible"]) for x in rows)
@@ -301,7 +306,7 @@ def run(isc_main: Path, output: Path, isc_supplement: Path | None = None,
         "year_range": [min(_year(x) for x in rows), max(_year(x) for x in rows)],
         "thresholds": list(THRESHOLDS), "shallow_depth_km": [0, MAX_SHALLOW_KM],
         "rules": {
-            "supplementary_catalogue": "separate only; excluded from main rate fit",
+            "supplementary_catalogue": "separate output; raw Mw retained as reported_magnitude, mw remains null and records are excluded from the main rate fit",
             "ComCat": "only events after the latest ISC-GEM main-catalogue date; only Mw/mww/mwc/mwb/mwr count as Mw",
             "unknown_depth": "not assumed shallow",
             "missing_magnitude": "not imputed",
@@ -313,8 +318,9 @@ def run(isc_main: Path, output: Path, isc_supplement: Path | None = None,
             "Non-Mw ComCat magnitudes are retained with mw_eligible=false and not converted.",
             "This pipeline prepares catalogue inputs; it does not yet generate calibrated earthquake probabilities.",
         ],
-        "files": ["global_catalogue_normalized.csv", "annual_global_counts.csv",
-                  "spatial_counts_5deg.csv", "catalog_audit.md"],
+        "files": ["global_catalogue_normalized.csv",
+                  *(["supplementary_catalogue_normalized.csv"] if isc_supplement and supplement else []),
+                  "annual_global_counts.csv", "spatial_counts_5deg.csv", "catalog_audit.md"],
     }
     (output / "catalog_manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     lines = [
@@ -335,7 +341,7 @@ def run(isc_main: Path, output: Path, isc_supplement: Path | None = None,
         "", "## Interpretation safeguards", "",
         "- Do not infer one global completeness magnitude from global counts alone.",
         "- Compare counts by region and time because network density and catalog practices vary.",
-        "- Keep the ISC-GEM supplementary list outside the quantitative main fit.",
+        "- Keep the ISC-GEM supplementary list outside the quantitative main fit; it is exported separately with its reported magnitude preserved.",
         "- Do not convert non-Mw ComCat magnitude types without a documented conversion model.",
         "- GEAR1 is a static long-term model for shallow seismicity; this audit is not a short-term forecast.",
         "- For historical blind tests, the 2026 ISC-GEM release is a modern retrospective catalogue, not an as-of snapshot.", "",
