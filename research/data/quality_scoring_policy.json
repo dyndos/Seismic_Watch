@@ -1,0 +1,126 @@
+{
+  "schema_version": "1.0.0",
+  "policy_id": "seismic-watch-quality-penalties",
+  "updated_utc": "2026-11-09",
+  "status": "provisional_for_phase_1_not_yet_calibrated",
+  "source_quality_score": {
+    "minimum": 0,
+    "maximum": 100,
+    "starting_score": 100,
+    "penalty_dimensions": [
+      {
+        "id": "provenance_and_reproducibility",
+        "maximum_penalty_points": 20,
+        "rules": [
+          {"condition": "primary source, DOI or stable product identifier cannot be verified", "penalty_points": 20},
+          {"condition": "source is traceable but retrieval/version/hash cannot be frozen", "penalty_points": 5}
+        ]
+      },
+      {
+        "id": "temporal_representativeness",
+        "maximum_penalty_points": 15,
+        "rules": [
+          {"condition": "observation epoch or model epoch is unknown for a time-dependent variable", "penalty_points": 15},
+          {"condition": "data epoch is known but materially mismatched to the forecast state and no update/propagation model exists", "penalty_points": 10},
+          {"condition": "release/publication date is unknown for a claimed historical as-of forecast", "penalty_points": 15}
+        ]
+      },
+      {
+        "id": "spatial_resolution",
+        "maximum_penalty_points": 20,
+        "rules": [
+          {"condition": "effective source resolution is more than four times coarser than the forecast support", "penalty_points": 20},
+          {"condition": "effective source resolution is two to four times coarser than the forecast support", "penalty_points": 10},
+          {"condition": "location uncertainty is comparable to or larger than the target fault/region width", "penalty_points": 10}
+        ]
+      },
+      {
+        "id": "uncertainty_characterization",
+        "maximum_penalty_points": 15,
+        "rules": [
+          {"condition": "no measurement/model uncertainty is supplied and cannot be reconstructed", "penalty_points": 15},
+          {"condition": "uncertainty is supplied but covariance, posterior samples or spatial correlation needed for combination are unavailable", "penalty_points": 5}
+        ]
+      },
+      {
+        "id": "coverage_and_extrapolation",
+        "maximum_penalty_points": 20,
+        "rules": [
+          {"condition": "a value is interpolated beyond the source's documented spatial support", "penalty_points": 20},
+          {"condition": "partial source footprint is represented without a per-cell coverage mask", "penalty_points": 15},
+          {"condition": "edge cells are close to or outside the validated source footprint", "penalty_points": 5}
+        ]
+      },
+      {
+        "id": "units_reference_frame_and_semantics",
+        "maximum_penalty_points": 10,
+        "rules": [
+          {"condition": "units, coordinate reference frame, sign convention or variable meaning cannot be confirmed", "penalty_points": 10},
+          {"condition": "conversion is inferred from a variable name rather than explicit metadata", "penalty_points": 3}
+        ]
+      }
+    ],
+    "calculation": "score = max(0, 100 - sum(applicable_penalty_points)); cap each dimension at its maximum_penalty_points",
+    "interpretation_bands": [
+      {"minimum": 85, "maximum": 100, "label": "high_source_quality"},
+      {"minimum": 70, "maximum": 84, "label": "usable_with_caveats"},
+      {"minimum": 50, "maximum": 69, "label": "weak_support_sensitivity_only"},
+      {"minimum": 0, "maximum": 49, "label": "do_not_use_as_quantitative_input"}
+    ],
+    "warning": "Point deductions and bands are engineering defaults for transparent audit. They must be sensitivity-tested and recalibrated against hindcasts; they are not scientifically validated constants."
+  },
+  "hard_exclusions": [
+    {
+      "id": "missing_required_physical_input",
+      "condition": "A required input for the selected physical calculation is absent (for example receiver fault geometry for a Coulomb failure calculation).",
+      "action": "Mark that module ineligible for the affected cell/segment; do not replace the input with zero, a global median or an assumed neighboring geometry."
+    },
+    {
+      "id": "outside_validated_domain",
+      "condition": "The forecast point is outside the source/model's documented domain.",
+      "action": "Mark that source/model unavailable for the affected area; retain the global baseline."
+    },
+    {
+      "id": "unknown_units_or_coordinate_system",
+      "condition": "Units, sign convention or coordinate frame cannot be resolved sufficiently to interpret the variable.",
+      "action": "Quarantine the variable until its semantics are verified."
+    },
+    {
+      "id": "future_data_leakage",
+      "condition": "The product was not available by the historical forecast cutoff.",
+      "action": "Exclude it from strict as-of hindcasts; it may only enter a separately labelled modern-data retrospective analysis."
+    }
+  ],
+  "source_reconciliation": {
+    "use_all_eligible_sources": true,
+    "rules": [
+      "Do not select one preferred publication and discard other compatible evidence solely because its point estimate differs.",
+      "Normalize and document units, signs, reference frames, epochs and geometry before comparison.",
+      "Only combine sources that estimate the same physical variable on compatible spatial support and time windows.",
+      "For compatible sources, use uncertainty-aware hierarchical or covariance-aware combination; use robust outlier diagnostics without automatically deleting discordant sources.",
+      "For incompatible methods, preserve individual source outputs as separate ensemble members rather than averaging them into a synthetic observation.",
+      "Keep per-source provenance, penalty breakdown, coverage mask and contribution in every output cell/segment.",
+      "Do not count datasets sharing GNSS stations, earthquake catalogs, inversion priors or model lineage as independent confirmations."
+    ]
+  },
+  "model_weighting": {
+    "separate_from_source_quality_score": true,
+    "weights_depend_on": [
+      "out_of_sample_forecast_skill",
+      "region",
+      "tectonic_regime",
+      "magnitude_bin",
+      "forecast_horizon",
+      "source_quality_and_coverage",
+      "model_dependency_and_error_correlation"
+    ],
+    "preferred_method": "Optimize ensemble weights/stacking on rolling-origin validation forecasts with proper scoring rules; hold out independent periods and regions for final evaluation.",
+    "minimum_comparators": ["historical_rate_baseline", "GEAR1_style_global_hybrid", "ETAS_or_regional_self_exciting_model"],
+    "prohibited": [
+      "Subtracting source quality points directly from earthquake probability",
+      "Adding probabilities from different model maps",
+      "Assigning a high weight because multiple dependent publications agree",
+      "Training ensemble weights on the final evaluation period"
+    ]
+  }
+}
