@@ -364,8 +364,8 @@
       "id": "bird-gearlibrary-dryad-2025",
       "name": "Peter Bird — Kinematic and dynamic modeling of lithosphere deformation: Tools and results",
       "kind": "research_archive_and_published_forecast_reproduction",
-      "status": "candidate_reference_archive",
-      "scope": "Includes source code, input/output examples and reproduction materials for GEAR1, SHIFT_GSRM and other deformation models",
+      "status": "downloaded_archive_verified_inputs_and_source",
+      "scope": "Downloaded and inspected archive; GEAR1 source, parameters, instructions and six execution inputs verified; full numerical output reproduction remains pending",
       "variables": [
         "GEAR1_source_code",
         "GEAR1_parameters",
