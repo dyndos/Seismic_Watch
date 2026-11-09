@@ -88,7 +88,10 @@ def combine_parent_rates(
         seismicity_floor**d * tectonic_floor**tectonic_exponent,
         min(seismicity_floor, tectonic_floor),
     )
-    raw = np.power(seismicity, d) * np.power(tectonic, tectonic_exponent)
+    raw = np.maximum(
+        np.power(seismicity, d) * np.power(tectonic, tectonic_exponent),
+        hybrid_floor,
+    )
     floor_integral = hybrid_floor * global_area
     raw_integral = float(np.sum(raw * area, dtype=np.float64))
     denominator = raw_integral - floor_integral
