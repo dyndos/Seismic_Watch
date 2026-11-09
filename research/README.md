@@ -36,12 +36,13 @@ After recreating the two parent rate surfaces from the original GEAR1 archive, c
 ~~~bash
 python -m research.gear1_baseline \
   --parents research/outputs/gear1-parents/parents.npz \
-  --target-global-rate <validated-events-per-year> \
   --seismicity-exponent 0.6 \
   --output research/outputs/gear1-baseline
 ~~~
 
-The NPZ must contain complete, strictly positive arrays named `seismicity_rate_density`, `tectonic_rate_density`, and `cell_area_km2`; optional `latitude` and `longitude` arrays are carried into the output. The module refuses missing values instead of imputing them. The target global rate must be validated against the source experiment, not guessed. See [the global catalogue and GEAR1 plan](../docs/GLOBAL_CATALOG_PIPELINE_RU.md).
+The NPZ must contain complete, strictly positive arrays named `seismicity_rate_density`, `tectonic_rate_density`, and `cell_area_km2`; optional `latitude` and `longitude` arrays are carried into the output. By default, the module follows the released GEAR1 source: the target global rate is the 0.6/0.4 geometric combination of the two parent-map integrals, with the original floor-preserving correction. An explicit `--target-global-rate` is an experimental override, not original GEAR1. Missing values are rejected rather than imputed.
+
+This module still combines prepared parents only; it does not generate the Kagan–Jackson or SHIFT_GSRM2f parent maps. See [global catalogue and GEAR1 plan](../docs/GLOBAL_CATALOG_PIPELINE_RU.md) and the [archive/source-level reproduction audit](../docs/GEAR1_DRYAD_REPRODUCTION_AUDIT_RU.md).
 
 ## Environment
 
