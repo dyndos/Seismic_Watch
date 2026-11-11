@@ -55,14 +55,14 @@ if ($actual -ne $expected) {
 
 В репозитории есть PowerShell-скрипт `research/prepare_gear1_windows.ps1`. Он:
 - проверяет SHA-256 исходного ZIP;
-- распаковывает архив и два вложенных ZIP;
-- распаковывает Unix `.Z` через установленный 7-Zip;
+- распаковывает архив, ZIP-маску underwater и Unix `.Z` файл GSRM;
+- находит S-parent `.TMP` отдельно: внутри архива либо по параметру `-SmoothedGridPath`;
 - подготавливает шесть входов с точными именами из файла параметров;
 - проверяет SHA-256 каждого входа;
 - копирует оригинальный Windows x64 исполняемый файл, а для parallel-режима — соответствующую `libiomp5md.dll`;
 - создает локальный `data/external/gear1/run/`, который исключен из Git.
 
-Пример запуска из корня checkout в PowerShell:
+Для подготовки можно указать `-SmoothedGridPath`, если входная сетка лежит отдельно от распакованного Dryad-архива. Без этого параметра скрипт ищет файл `GL_HAZTBLT_M5_B2_2013.TMP` во всем распакованном архиве.
 
 ```powershell
 .\research\prepare_gear1_windows.ps1 -ArchivePath "C:\Users\<имя>\Downloads\Bird_archive_for_Dryad.zip" -ExecutionMode parallel
@@ -92,16 +92,18 @@ if ($actual -ne $expected) {
 
 | Имя, ожидаемое программой | Исходное расположение в архиве | Подготовка |
 |---|---|---|
-| `GL_HAZTBLT_M5_B2_2013.TMP` | `GEAR1_forecast/GL_HAZTBLT_M5_B2_2013.zip` | Распаковать вложенный ZIP |
-| `PB2002_tectonic_zones.grd` | `PB2002/PB2002_tectonic_zones.grd.txt` | Удалить второй суффикс `.txt` в рабочей копии |
-| `underwater.grd` | `Kagan_2009_GJI_I_scores/underwater.grd.zip` | Распаковать вложенный ZIP и взять файл `underwater.grd` |
-| `PB2002_steps.dat` | `PB2002/PB2002_steps.dat.txt` | Удалить второй суффикс `.txt` в рабочей копии |
-| `GSRM_average_strain_v2.1.txt` | `SHIFT_GSRM2_forecast/GSRM_average_strain_v2.1.txt.Z` | Распаковать Unix `.Z` |
-| `GCMT_shallow_5p767_1977-2013.eqc` | `SHIFT_GSRM2_forecast/GCMT_shallow_5p767_1977-2013.eqc.txt` | Удалить второй суффикс `.txt` в рабочей копии |
+| `GL_HAZTBLT_M5_B2_2013.TMP` | S-parent grid; exact path must be found in the extracted archive or supplied separately | Copy the verified `.TMP` input; do not substitute the ZIP reference output |
+| `PB2002_tectonic_zones.grd` | `PB2002/PB2002_tectonic_zones.grd.txt` | Remove second `.txt` suffix in the working copy |
+| `underwater.grd` | `Kagan_2009_GJI_I_scores/underwater.grd.zip` | Expand ZIP and take `underwater.grd` |
+| `PB2002_steps.dat` | `PB2002/PB2002_steps.dat.txt` | Remove second `.txt` suffix in the working copy |
+| `GSRM_average_strain_v2.1.txt` | `SHIFT_GSRM2_forecast/GSRM_average_strain_v2.1.txt.Z` | Decompress Unix `.Z` |
+| `GCMT_shallow_5p767_1977-2013.eqc` | `SHIFT_GSRM2_forecast/GCMT_shallow_5p767_1977-2013.eqc.txt` | Remove second `.txt` suffix in the working copy |
+
+**Отдельно о файле с похожим именем:** Dryad описывает `GEAR1_forecast/GL_HAZTBLT_M5_B2_2013.zip` как уже опубликованный GEAR1 CSEP XML forecast output, а не как `GL_HAZTBLT_M5_B2_2013.TMP` input grid. Этот ZIP полезен как эталонный опубликованный прогноз, но его нельзя переименовывать или считать входом S-parent. Источник: [README/файловый перечень Dryad](https://datadryad.org/dataset/doi:10.5061/dryad.cnp5hqcjb).
 
 Сам файл параметров в рабочем каталоге должен называться `GEAR1_parameters.dat` (убрать второй суффикс `.txt`). Первые шесть строк параметров нельзя менять; перед запуском нужно проверить, что имена файлов в параметрах совпадают с именами входов буквально.
 
-Для двух ZIP внутри архива можно использовать PowerShell `Expand-Archive`. Для файла `.Z` нужна поддержка Unix compress, например утилита `uncompress` в Linux. Не путай `.Z` с обычным ZIP.
+Для ZIP-маски underwater используется PowerShell `Expand-Archive`. Для файла `.Z` нужна поддержка Unix compress, например утилита `uncompress` в Linux. Не путай `.Z` с обычным ZIP. В архивном комплекте Dryad также лежит опубликованный XML в `GEAR1_forecast/GL_HAZTBLT_M5_B2_2013.zip`; это reference output, а не входная S-parent сетка.
 
 ## 6. Запуск и ресурсы
 
