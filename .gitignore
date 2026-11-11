@@ -11,6 +11,9 @@ venv/
 .env
 
 # Data (generated)
+# Large external research inputs and derived artifacts; keep out of Git history.
+data/external/
+*.global.forecast.xml
 data/seismic.db
 data/analysis_*.json
 data/plates.geojson
