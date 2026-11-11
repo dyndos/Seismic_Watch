@@ -1,0 +1,375 @@
+{
+  "model": "GEAR1 v1 — original Peter Bird Fortran executable",
+  "source_log": {
+    "filename": "GEAR1_for_CSEP_log.txt",
+    "bytes": 37169,
+    "lines": 656,
+    "sha256": "26203877f5008908dfce2234c5f97245e4ef4660359ca6d1657537e3821119f0",
+    "provided_by_user": true
+  },
+  "completion": {
+    "step_1": true,
+    "step_2": true,
+    "step_3": true,
+    "step_4": true,
+    "step_5": true,
+    "terminal_marker": "PROGRAM GEAR1_for_CSEP: Job completed.",
+    "xml_write_marker": "STEP #5 completed.",
+    "xml_artifact_received_and_validated": false
+  },
+  "configuration": {
+    "forecast_start_utc": "2014-01-01T00:00:00Z",
+    "forecast_end_utc": "2015-01-01T00:00:00Z",
+    "duration_years": 1,
+    "grid_degrees": 0.1,
+    "thresholds_magnitude": [
+      5.95,
+      6.05,
+      6.15,
+      6.25,
+      6.35,
+      6.45,
+      6.55,
+      6.65,
+      6.75,
+      6.85,
+      6.95,
+      7.05,
+      7.15,
+      7.25,
+      7.35,
+      7.45,
+      7.55,
+      7.65,
+      7.75,
+      7.85,
+      7.95,
+      8.05,
+      8.15,
+      8.25,
+      8.35,
+      8.45,
+      8.55,
+      8.65,
+      8.75,
+      8.85,
+      8.95
+    ],
+    "forecast_character": "global long-term shallow seismicity; time-independent parent rates",
+    "configured_xml_filename": "GEAR1.global.forecast.xml"
+  },
+  "step_1": {
+    "source_grid_records": 6480000,
+    "input_threshold_label": "M>5.8",
+    "integrated_rate_events_per_year": 176.47,
+    "grid_calculated_at": "2014-05-16 16:26 Los Angeles time",
+    "last_catalog_event_date": "2013-12-29"
+  },
+  "step_2": {
+    "calibration_catalog_events": 6476,
+    "calibration_start": "1977-01-01",
+    "calibration_end": "2013-12-29",
+    "calibration_duration_years": 37,
+    "gsrm_grid_points": 1294560,
+    "gsrm_grid_shape": [
+      899,
+      1440
+    ],
+    "orphan_cells_zeroed_after_109_neighbor_iterations": 101,
+    "largest_zeroed_strain_rate_per_second": 9.13e-17,
+    "largest_zeroed_strain_rate_nanostrain_per_year": 2.9,
+    "assigned_area_percent": {
+      "zone_1": 9.24,
+      "zone_2": 4.1,
+      "zone_3": 3,
+      "zone_4": 8.26,
+      "intraplate": 75.4
+    },
+    "calibration_event_counts": {
+      "zone_1": 880,
+      "zone_2": 426,
+      "zone_3": 644,
+      "zone_4": 4446,
+      "intraplate": 80
+    },
+    "plate_boundary_scaling_factors": {
+      "zone_1": 0.88704,
+      "zone_2": 2.53599,
+      "zone_3": 2.36408,
+      "zone_4": 3.10822
+    },
+    "intraplate_rate_per_m2_per_second": 1.78158e-22
+  },
+  "step_3_rates": {
+    "columns": [
+      "threshold_magnitude",
+      "tectonic_parent_rate_events_per_year",
+      "raw_hybrid_rate_events_per_year",
+      "adjusted_hybrid_rate_events_per_year",
+      "hybrid_rate_above_threshold_events_per_year",
+      "approx_distinct_bin_rate_events_per_year"
+    ],
+    "rows": [
+      [
+        5.95,
+        115.978,
+        89.826,
+        116.2,
+        116.2,
+        23.478
+      ],
+      [
+        6.05,
+        92.808,
+        71.637,
+        92.722,
+        92.722,
+        18.688
+      ],
+      [
+        6.15,
+        74.387,
+        57.146,
+        74.034,
+        74.034,
+        14.898
+      ],
+      [
+        6.25,
+        59.694,
+        45.597,
+        59.136,
+        59.136,
+        11.899
+      ],
+      [
+        6.35,
+        47.923,
+        36.384,
+        47.237,
+        47.237,
+        9.516
+      ],
+      [
+        6.45,
+        38.465,
+        29.021,
+        37.721,
+        37.721,
+        7.615
+      ],
+      [
+        6.55,
+        30.861,
+        23.13,
+        30.106,
+        30.106,
+        6.089
+      ],
+      [
+        6.65,
+        24.759,
+        18.416,
+        24.017,
+        24.017,
+        4.864
+      ],
+      [
+        6.75,
+        19.876,
+        14.65,
+        19.153,
+        19.153,
+        3.882
+      ],
+      [
+        6.85,
+        15.978,
+        11.647,
+        15.271,
+        15.271,
+        3.098
+      ],
+      [
+        6.95,
+        12.867,
+        9.257,
+        12.173,
+        12.173,
+        2.477
+      ],
+      [
+        7.05,
+        10.373,
+        7.358,
+        9.696,
+        9.696,
+        1.983
+      ],
+      [
+        7.15,
+        8.361,
+        5.849,
+        7.713,
+        7.713,
+        1.592
+      ],
+      [
+        7.25,
+        6.727,
+        4.644,
+        6.121,
+        6.121,
+        1.279
+      ],
+      [
+        7.35,
+        5.395,
+        3.678,
+        4.842,
+        4.842,
+        1.029
+      ],
+      [
+        7.45,
+        4.305,
+        2.902,
+        3.813,
+        3.813,
+        0.825
+      ],
+      [
+        7.55,
+        3.413,
+        2.278,
+        2.988,
+        2.988,
+        0.662
+      ],
+      [
+        7.65,
+        2.681,
+        1.778,
+        2.326,
+        2.326,
+        0.527
+      ],
+      [
+        7.75,
+        2.081,
+        1.379,
+        1.799,
+        1.799,
+        0.418
+      ],
+      [
+        7.85,
+        1.592,
+        1.062,
+        1.381,
+        1.381,
+        0.328
+      ],
+      [
+        7.95,
+        1.196,
+        0.812,
+        1.053,
+        1.053,
+        0.256
+      ],
+      [
+        8.05,
+        0.883,
+        0.616,
+        0.797,
+        0.797,
+        0.197
+      ],
+      [
+        8.15,
+        0.642,
+        0.462,
+        0.6,
+        0.6,
+        0.15
+      ],
+      [
+        8.25,
+        0.464,
+        0.344,
+        0.45,
+        0.45,
+        0.112
+      ],
+      [
+        8.35,
+        0.34,
+        0.253,
+        0.338,
+        0.338,
+        0.083
+      ],
+      [
+        8.45,
+        0.254,
+        0.185,
+        0.255,
+        0.255,
+        0.062
+      ],
+      [
+        8.55,
+        0.194,
+        0.135,
+        0.193,
+        0.193,
+        0.047
+      ],
+      [
+        8.65,
+        0.15,
+        0.099,
+        0.146,
+        0.146,
+        0.037
+      ],
+      [
+        8.75,
+        0.116,
+        0.073,
+        0.109,
+        0.109,
+        0.028
+      ],
+      [
+        8.85,
+        0.09,
+        0.053,
+        0.081,
+        0.081,
+        0.022
+      ],
+      [
+        8.95,
+        0.069,
+        0.038,
+        0.059,
+        0.059,
+        0.059
+      ]
+    ]
+  },
+  "final_output": {
+    "integrated_rate_above_magnitude_5_95_events_per_second": 0.0000036821,
+    "integrated_rate_above_magnitude_5_95_events_per_year": 116.2,
+    "integrated_rate_above_magnitude_5_95_events_per_century": 11620,
+    "step_5_completed": true
+  },
+  "caveats": [
+    "The log confirms the program reached STEP #5 and Job completed, but the XML file itself has not yet been downloaded or parsed in this conversation.",
+    "This is the original historical 2014-2015 GEAR1 forecast configuration, not a forecast for 2026.",
+    "The original program assigns zero strain rate to 101 orphan GSRM cells after its neighbor propagation routine; this behavior is recorded, not silently treated as independent physical evidence.",
+    "Distinct-bin rates are differences of cumulative rates rounded to 0.001 events/year in the log; they are approximate."
+  ]
+}
