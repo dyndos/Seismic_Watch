@@ -262,7 +262,10 @@ def validate(xml_path: Path, summary_path: Path) -> dict[str, object]:
                             max_value = max(max_value, value)
                             bin_sums[index].add(value)
 
-                point = {"lon": lon, "lat": lat}
+                point = {
+                    "lon": lon if math.isfinite(lon) else None,
+                    "lat": lat if math.isfinite(lat) else None,
+                }
                 if len(first_cells) < 5:
                     first_cells.append(point)
                 last_cells.append(point)
@@ -313,6 +316,10 @@ def validate(xml_path: Path, summary_path: Path) -> dict[str, object]:
         errors.append(f"depthLayer min={depth_layer['min']!r}; expected 0")
     if "max" in depth_layer and not close_enough(float(depth_layer["max"]), 70.0, tolerance=0.0):
         errors.append(f"depthLayer max={depth_layer['max']!r}; expected 70")
+
+    if bin_labels and all(label is not None for label in bin_labels):
+        if any(float(bin_labels[i]) >= float(bin_labels[i + 1]) for i in range(len(bin_labels) - 1)):
+            errors.append("Magnitude-bin labels are not strictly increasing")
 
     totals = [item.value for item in bin_sums]
     cumulative = [math.fsum(totals[i:]) for i in range(N_BINS)]
