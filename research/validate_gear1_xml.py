@@ -172,6 +172,12 @@ def validate(xml_path: Path, summary_path: Path) -> dict[str, object]:
                     root_tag = elem.tag
                     if tag != "CSEPForecast":
                         errors.append(f"Unexpected root element: {tag}")
+                    elif not (
+                        elem.tag.startswith("{")
+                        and "csep" in elem.tag.lower()
+                        and "forecast" in elem.tag.lower()
+                    ):
+                        errors.append(f"Root element does not declare a recognized CSEP forecast namespace: {elem.tag!r}")
                 elif tag == "forecastData":
                     forecast_data_seen = True
                 elif tag == "defaultCellDimension":
