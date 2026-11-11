@@ -92,12 +92,12 @@ if ($actual -ne $expected) {
 
 | Имя, ожидаемое программой | Исходное расположение в архиве | Подготовка |
 |---|---|---|
-| `GL_HAZTBLT_M5_B2_2013.TMP` | S-parent grid; exact path must be found in the extracted archive or supplied separately | Copy the verified `.TMP` input; do not substitute the ZIP reference output |
-| `PB2002_tectonic_zones.grd` | `PB2002/PB2002_tectonic_zones.grd.txt` | Remove second `.txt` suffix in the working copy |
-| `underwater.grd` | `Kagan_2009_GJI_I_scores/underwater.grd.zip` | Expand ZIP and take `underwater.grd` |
-| `PB2002_steps.dat` | `PB2002/PB2002_steps.dat.txt` | Remove second `.txt` suffix in the working copy |
-| `GSRM_average_strain_v2.1.txt` | `SHIFT_GSRM2_forecast/GSRM_average_strain_v2.1.txt.Z` | Decompress Unix `.Z` |
-| `GCMT_shallow_5p767_1977-2013.eqc` | `SHIFT_GSRM2_forecast/GCMT_shallow_5p767_1977-2013.eqc.txt` | Remove second `.txt` suffix in the working copy |
+| `GL_HAZTBLT_M5_B2_2013.TMP` | Входная S-parent сетка; точный путь нужно найти в распакованном архиве или указать отдельно | Скопировать проверенный `.TMP`; не подменять ZIP-файлом опубликованного прогноза |
+| `PB2002_tectonic_zones.grd` | `PB2002/PB2002_tectonic_zones.grd.txt` | Удалить второй суффикс `.txt` в рабочей копии |
+| `underwater.grd` | `Kagan_2009_GJI_I_scores/underwater.grd.zip` | Распаковать ZIP и взять `underwater.grd` |
+| `PB2002_steps.dat` | `PB2002/PB2002_steps.dat.txt` | Удалить второй суффикс `.txt` в рабочей копии |
+| `GSRM_average_strain_v2.1.txt` | `SHIFT_GSRM2_forecast/GSRM_average_strain_v2.1.txt.Z` | Распаковать Unix `.Z` |
+| `GCMT_shallow_5p767_1977-2013.eqc` | `SHIFT_GSRM2_forecast/GCMT_shallow_5p767_1977-2013.eqc.txt` | Удалить второй суффикс `.txt` в рабочей копии |
 
 **Отдельно о файле с похожим именем:** Dryad описывает `GEAR1_forecast/GL_HAZTBLT_M5_B2_2013.zip` как уже опубликованный GEAR1 CSEP XML forecast output, а не как `GL_HAZTBLT_M5_B2_2013.TMP` input grid. Этот ZIP полезен как эталонный опубликованный прогноз, но его нельзя переименовывать или считать входом S-parent. Источник: [README/файловый перечень Dryad](https://datadryad.org/dataset/doi:10.5061/dryad.cnp5hqcjb).
 
