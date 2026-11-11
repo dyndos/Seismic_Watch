@@ -24,7 +24,7 @@ def main() -> int:
     replacements = [
         (', DISP = "KEEP"', ""),
         ("='p,ES12.4", "=',ES12.4"),
-        (r"\\)", ")"),
+        (r"\)", ")"),
     ]
     for old, new in replacements:
         if old not in gear:
@@ -33,15 +33,15 @@ def main() -> int:
 
     sphere = read_text(args.sphere_source)
     sphere, removed = re.subn(
-        r"(?ms)^\\s*SUBROUTINE\\s+MATHERRQQ\\b.*?^\\s*END SUBROUTINE\\s+MATHERRQQ\\s*\\n?",
+        r"(?ms)^\s*SUBROUTINE\s+MATHERRQQ\b.*?^\s*END SUBROUTINE\s+MATHERRQQ\s*\n?",
         "",
         sphere,
     )
     if removed != 1:
         raise SystemExit(f"Expected to remove one Intel-specific MATHERRQQ routine; removed {removed}")
-    if r"\\)" not in sphere:
+    if r"\)" not in sphere:
         raise SystemExit("Expected one remaining backslash-parenthesis format token in Sphere")
-    sphere = sphere.replace(r"\\)", ")")
+    sphere = sphere.replace(r"\)", ")")
 
     if args.stop_after_step2:
         marker = '''    WRITE (*, "(' ===  STEP #3: Merge to create hybrid forecast H*       ================')")'''
