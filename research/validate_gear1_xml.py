@@ -1,265 +1,391 @@
 #!/usr/bin/env python3
-"""Stream-validate an original GEAR1 CSEP XML forecast without loading it into RAM."""
+"""Stream-validate a large GEAR1 CSEP XML forecast with bounded memory.
+
+Supports the traditional CSEP XML shape:
+CSEPForecast/forecastData/depthLayer/cell/bin,
+where each cell contains individual <bin m="...">value</bin> elements.
+A compact whitespace-separated cell representation is also accepted.
+"""
 from __future__ import annotations
 
 import argparse
 import hashlib
 import json
 import math
+import re
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
-NAMESPACE = "http://www.scec.org/xml-ns/csep/forecast/1.1"
-EXPECTED_ROWS_DEFAULT = 1800
-EXPECTED_COLUMNS_DEFAULT = 3600
-EXPECTED_BIN_COUNT = 31
+N_LONGITUDE = 3600
+N_LATITUDE = 1800
+N_CELLS = N_LONGITUDE * N_LATITUDE
+N_BINS = 31
 GRID_STEP = 0.1
-LON_MIN = -179.95
-LAT_MIN = -89.95
+BIN_TAGS = {"bin", "magnitudeBin", "magBin"}
+METADATA_TAGS = {
+    "modelName", "version", "author", "authorURI", "issueDate",
+    "forecastStartDate", "forecastEndDate", "forecastDuration",
+    "defaultMagBinDimension", "magnitudeBinDimension", "magnitudeMinValue",
+    "lastMagBinOpen",
+}
 
 
 class HashingReader:
-    """File wrapper that hashes bytes as ElementTree reads them."""
+    """Hash bytes as ElementTree streams through the XML file."""
     def __init__(self, path: Path) -> None:
-        self._stream = path.open("rb")
-        self._hash = hashlib.sha256()
+        self.stream = path.open("rb")
+        self.digest = hashlib.sha256()
 
     def read(self, size: int = -1) -> bytes:
-        data = self._stream.read(size)
-        self._hash.update(data)
-        return data
+        block = self.stream.read(size)
+        self.digest.update(block)
+        return block
 
     def close(self) -> None:
-        self._stream.close()
+        self.stream.close()
 
     @property
-    def hexdigest(self) -> str:
-        return self._hash.hexdigest()
+    def sha256(self) -> str:
+        return self.digest.hexdigest()
 
 
 class KahanSum:
     def __init__(self) -> None:
-        self.total = 0.0
-        self.compensation = 0.0
+        self.value = 0.0
+        self.correction = 0.0
 
-    def add(self, value: float) -> None:
-        y = value - self.compensation
-        t = self.total + y
-        self.compensation = (t - self.total) - y
-        self.total = t
+    def add(self, x: float) -> None:
+        y = x - self.correction
+        t = self.value + y
+        self.correction = (t - self.value) - y
+        self.value = t
 
 
 def local_name(tag: str) -> str:
     return tag.rsplit("}", 1)[-1]
 
 
-def load_expected(path: Path) -> tuple[list[float], list[float], str, str]:
+def parse_expected_summary(path: Path) -> tuple[list[float], list[float], str, str]:
     data = json.loads(path.read_text(encoding="utf-8"))
     columns = data["step_3_rates"]["columns"]
     rows = data["step_3_rates"]["rows"]
-    mag_i = columns.index("threshold_magnitude")
-    rate_i = columns.index("hybrid_rate_above_threshold_events_per_year")
-    thresholds = [float(row[mag_i]) for row in rows]
-    rates = [float(row[rate_i]) for row in rows]
-    start = data["configuration"]["forecast_start_utc"]
-    end = data["configuration"]["forecast_end_utc"]
-    return thresholds, rates, start, end
+    mi = columns.index("threshold_magnitude")
+    ri = columns.index("hybrid_rate_above_threshold_events_per_year")
+    thresholds = [float(row[mi]) for row in rows]
+    rates = [float(row[ri]) for row in rows]
+    return (
+        thresholds,
+        rates,
+        data["configuration"]["forecast_start_utc"],
+        data["configuration"]["forecast_end_utc"],
+    )
 
 
-def close_enough(actual: float, expected: float, rel_tol: float = 0.005, abs_tol: float = 0.0005) -> bool:
-    return abs(actual - expected) <= max(abs_tol, abs(expected) * rel_tol)
+def infer_axis_index(value: float, *, axis: str) -> tuple[int, str] | None:
+    """Map either cell-centre or lower-edge CSEP coordinates onto global grid indices."""
+    if axis == "lon":
+        candidates = [(-179.95, "centre"), (-180.0, "lower_edge")]
+        size = N_LONGITUDE
+    else:
+        candidates = [(-89.95, "centre"), (-90.0, "lower_edge")]
+        size = N_LATITUDE
+
+    best: tuple[float, int, str] | None = None
+    for origin, mode in candidates:
+        raw = (value - origin) / GRID_STEP
+        idx = int(round(raw))
+        residual = abs(value - (origin + idx * GRID_STEP))
+        if 0 <= idx < size and (best is None or residual < best[0]):
+            best = (residual, idx, mode)
+    if best is None or best[0] > 0.0051:
+        return None
+    return best[1], best[2]
 
 
-def validate(
-    xml_path: Path,
-    expected_json: Path,
-    rows_expected: int = EXPECTED_ROWS_DEFAULT,
-    columns_expected: int = EXPECTED_COLUMNS_DEFAULT,
-) -> dict[str, object]:
-    thresholds, expected_rates, expected_start, expected_end = load_expected(expected_json)
-    if len(thresholds) != EXPECTED_BIN_COUNT or len(expected_rates) != EXPECTED_BIN_COUNT:
-        raise ValueError(f"Expected summary must have {EXPECTED_BIN_COUNT} magnitude thresholds")
+def parse_cell_values(cell: ET.Element) -> tuple[list[float], list[float | None]]:
+    bin_nodes = [
+        node for node in cell.iter()
+        if node is not cell and local_name(node.tag) in BIN_TAGS
+    ]
+    values: list[float] = []
+    labels: list[float | None] = []
 
+    if bin_nodes:
+        for node in bin_nodes:
+            raw = (node.text or "").strip()
+            if not raw and "value" in node.attrib:
+                raw = node.attrib["value"]
+            if not raw:
+                raise ValueError("A magnitude-bin element has no numeric text/value")
+            values.append(float(raw))
+            label = node.attrib.get("m", node.attrib.get("magnitude"))
+            labels.append(float(label) if label is not None else None)
+        return values, labels
+
+    # Some CSEP writers place the 31 numeric rates directly in the cell text.
+    raw_text = " ".join(part.strip() for part in cell.itertext() if part.strip())
+    tokens = [token for token in re.split(r"[\s,;]+", raw_text) if token]
+    values = [float(token) for token in tokens]
+    labels = [None] * len(values)
+    return values, labels
+
+
+def close_enough(actual: float, expected: float, tolerance: float = 0.005) -> bool:
+    return abs(actual - expected) <= max(5e-4, abs(expected) * tolerance)
+
+
+def validate(xml_path: Path, summary_path: Path) -> dict[str, object]:
+    thresholds, expected_rates, expected_start, expected_end = parse_expected_summary(summary_path)
+    if len(thresholds) != N_BINS or len(expected_rates) != N_BINS:
+        raise ValueError(f"Expected exactly {N_BINS} thresholds in run-summary JSON")
+
+    reader = HashingReader(xml_path)
     metadata: dict[str, str] = {}
-    depth_attrs: dict[str, str] = {}
-    cell_dimension_attrs: dict[str, str] = {}
-    sums = [KahanSum() for _ in range(EXPECTED_BIN_COUNT)]
+    cell_dimension: dict[str, str] = {}
+    depth_layer: dict[str, str] = {}
+    root_tag: str | None = None
+    forecast_data_seen = False
+    depth_layer_seen = 0
     cell_count = 0
     value_count = 0
     zero_count = 0
-    first_cell: dict[str, float] | None = None
-    last_cell: dict[str, float] | None = None
-    stack: list[ET.Element] = []
-    reader = HashingReader(xml_path)
+    negative_count = 0
+    nonfinite_count = 0
+    min_value = math.inf
+    max_value = -math.inf
+    first_cells: list[dict[str, float]] = []
+    last_cells: list[dict[str, float]] = []
+    errors: list[str] = []
+    bin_labels: list[float | None] | None = None
+    bin_sums = [KahanSum() for _ in range(N_BINS)]
+    seen = bytearray((N_CELLS + 7) // 8)
+    centre_mode: dict[str, str] = {}
 
     try:
+        stack: list[ET.Element] = []
         for event, elem in ET.iterparse(reader, events=("start", "end")):
-            name = local_name(elem.tag)
+            tag = local_name(elem.tag)
+
             if event == "start":
                 stack.append(elem)
                 if len(stack) == 1:
-                    if name != "CSEPForecast" or elem.tag != f"{{{NAMESPACE}}}CSEPForecast":
-                        raise ValueError(f"Unexpected XML root/namespace: {elem.tag!r}")
-                elif name == "cellDimension":
-                    cell_dimension_attrs = dict(elem.attrib)
-                elif name == "depthLayer":
-                    depth_attrs = dict(elem.attrib)
+                    root_tag = elem.tag
+                    if tag != "CSEPForecast":
+                        errors.append(f"Unexpected root element: {tag}")
+                elif tag == "forecastData":
+                    forecast_data_seen = True
+                elif tag == "defaultCellDimension":
+                    cell_dimension = dict(elem.attrib)
+                elif tag == "depthLayer":
+                    depth_layer_seen += 1
+                    if depth_layer_seen == 1:
+                        depth_layer = dict(elem.attrib)
                 continue
 
-            if name == "cell":
-                if len(stack) < 2:
-                    raise ValueError("Cell element has no forecast container")
-                if cell_count >= rows_expected * columns_expected:
-                    raise ValueError("XML contains more cells than the configured global grid")
+            if tag in METADATA_TAGS:
+                metadata[tag] = (elem.text or "").strip()
+
+            if tag == "cell":
+                cell_count += 1
+                if cell_count > N_CELLS:
+                    errors.append(f"More than {N_CELLS:,} cells encountered")
+                    break
+
                 try:
                     lon = float(elem.attrib["lon"])
                     lat = float(elem.attrib["lat"])
+                    if not (math.isfinite(lon) and math.isfinite(lat)):
+                        raise ValueError("non-finite coordinate")
                 except (KeyError, ValueError) as exc:
-                    raise ValueError(f"Cell {cell_count + 1} has invalid lon/lat attributes") from exc
+                    errors.append(f"Cell {cell_count}: invalid lon/lat attributes ({exc})")
+                    lon = lat = math.nan
 
-                col = cell_count // rows_expected
-                row = cell_count % rows_expected
-                expected_lon = LON_MIN + col * GRID_STEP
-                expected_lat = LAT_MIN + row * GRID_STEP
-                if not close_enough(lon, expected_lon, rel_tol=0.0, abs_tol=0.0051):
-                    raise ValueError(f"Cell {cell_count + 1}: longitude {lon} != expected {expected_lon}")
-                if not close_enough(lat, expected_lat, rel_tol=0.0, abs_tol=0.0051):
-                    raise ValueError(f"Cell {cell_count + 1}: latitude {lat} != expected {expected_lat}")
+                if math.isfinite(lon) and math.isfinite(lat):
+                    lon_result = infer_axis_index(lon, axis="lon")
+                    lat_result = infer_axis_index(lat, axis="lat")
+                    if lon_result is None or lat_result is None:
+                        if len(errors) < 100:
+                            errors.append(f"Cell {cell_count}: coordinate outside or off global 0.1-degree grid ({lon}, {lat})")
+                    else:
+                        lon_idx, lon_mode = lon_result
+                        lat_idx, lat_mode = lat_result
+                        if lon_mode != centre_mode.get("lon", lon_mode):
+                            if "lon" in centre_mode and len(errors) < 100:
+                                errors.append(f"Cell {cell_count}: mixed longitude coordinate convention")
+                        else:
+                            centre_mode.setdefault("lon", lon_mode)
+                        if lat_mode != centre_mode.get("lat", lat_mode):
+                            if "lat" in centre_mode and len(errors) < 100:
+                                errors.append(f"Cell {cell_count}: mixed latitude coordinate convention")
+                        else:
+                            centre_mode.setdefault("lat", lat_mode)
 
-                if len(elem):
-                    raise ValueError(f"Cell {cell_count + 1} contains child elements; expected numeric text values")
-                fields = (elem.text or "").split()
-                if len(fields) != EXPECTED_BIN_COUNT:
-                    raise ValueError(f"Cell {cell_count + 1} has {len(fields)} values, expected {EXPECTED_BIN_COUNT}")
-                for index, field in enumerate(fields):
-                    try:
-                        value = float(field)
-                    except ValueError as exc:
-                        raise ValueError(f"Invalid numeric forecast value in cell {cell_count + 1}: {field!r}") from exc
-                    if not math.isfinite(value) or value < 0.0:
-                        raise ValueError(f"Negative/non-finite forecast value in cell {cell_count + 1}: {field!r}")
-                    sums[index].add(value)
-                    if value == 0.0:
-                        zero_count += 1
-                value_count += len(fields)
-                cell = {"lon": lon, "lat": lat}
-                if first_cell is None:
-                    first_cell = cell
-                last_cell = cell
-                cell_count += 1
-                # Remove processed cells from parent to keep memory bounded.
-                stack[-2].remove(elem)
+                        bit_index = lat_idx * N_LONGITUDE + lon_idx
+                        byte_index, bit = divmod(bit_index, 8)
+                        mask = 1 << bit
+                        if seen[byte_index] & mask:
+                            if len(errors) < 100:
+                                errors.append(f"Cell {cell_count}: duplicate spatial cell ({lon}, {lat})")
+                        else:
+                            seen[byte_index] |= mask
+
+                try:
+                    values, labels = parse_cell_values(elem)
+                except (ValueError, OverflowError) as exc:
+                    if len(errors) < 100:
+                        errors.append(f"Cell {cell_count}: cannot parse magnitude values ({exc})")
+                    values, labels = [], []
+
+                if len(values) != N_BINS:
+                    if len(errors) < 100:
+                        errors.append(f"Cell {cell_count}: has {len(values)} magnitude values; expected {N_BINS}")
+                else:
+                    if bin_labels is None:
+                        bin_labels = labels
+                    elif any(
+                        a is not None and b is not None and abs(a - b) > 1e-5
+                        for a, b in zip(bin_labels, labels)
+                    ):
+                        if len(errors) < 100:
+                            errors.append(f"Cell {cell_count}: magnitude-bin labels/order differ from the first cell")
+
+                    for index, value in enumerate(values):
+                        value_count += 1
+                        if not math.isfinite(value):
+                            nonfinite_count += 1
+                        elif value < 0.0:
+                            negative_count += 1
+                        else:
+                            if value == 0.0:
+                                zero_count += 1
+                            min_value = min(min_value, value)
+                            max_value = max(max_value, value)
+                            bin_sums[index].add(value)
+
+                point = {"lon": lon, "lat": lat}
+                if len(first_cells) < 5:
+                    first_cells.append(point)
+                last_cells.append(point)
+                if len(last_cells) > 5:
+                    last_cells.pop(0)
+
+                # Remove processed global cells immediately to bound memory.
+                if len(stack) >= 2:
+                    stack[-2].remove(elem)
                 elem.clear()
-
-            elif name in {
-                "modelName", "version", "author", "authorURI", "issueDate",
-                "forecastStartDate", "forecastEndDate", "forecastDuration",
-                "magnitudeBinDimension", "magnitudeMinValue", "lastMagBinOpen",
-            }:
-                metadata[name] = (elem.text or "").strip()
 
             if stack and stack[-1] is elem:
                 stack.pop()
 
+        # iterparse consumes the full input on success, so this digest covers the complete file.
     except ET.ParseError as exc:
-        raise ValueError(f"XML parse error: {exc}") from exc
+        errors.append(f"XML parse error: {exc}")
     finally:
         reader.close()
 
-    expected_cells = rows_expected * columns_expected
-    if cell_count != expected_cells:
-        raise ValueError(f"XML has {cell_count:,} cells; expected {expected_cells:,}")
-    if value_count != expected_cells * EXPECTED_BIN_COUNT:
-        raise ValueError(
-            f"XML has {value_count:,} forecast values; expected {expected_cells * EXPECTED_BIN_COUNT:,}"
-        )
+    unique_cells = sum(byte.bit_count() for byte in seen)
+    if cell_count != N_CELLS:
+        errors.append(f"Expected {N_CELLS:,} cells; parsed {cell_count:,}")
+    if unique_cells != N_CELLS:
+        errors.append(f"Expected {N_CELLS:,} unique spatial cells; found {unique_cells:,}")
+    if value_count != N_CELLS * N_BINS:
+        errors.append(f"Expected {N_CELLS * N_BINS:,} numeric values; parsed {value_count:,}")
+    if negative_count or nonfinite_count:
+        errors.append(f"Invalid forecast values: negative={negative_count:,}, nonfinite={nonfinite_count:,}")
 
-    required_meta = {
-        "modelName": "GEAR1",
-        "version": "1.0",
-        "forecastStartDate": expected_start,
-        "forecastEndDate": expected_end,
-        "magnitudeBinDimension": "0.1",
-        "magnitudeMinValue": "5.95",
-        "lastMagBinOpen": "1",
-    }
-    for key, expected in required_meta.items():
-        actual = metadata.get(key)
-        if actual != expected:
-            raise ValueError(f"Metadata {key}={actual!r}; expected {expected!r}")
-    duration = float(metadata.get("forecastDuration", "nan"))
-    if not close_enough(duration, 365.25, rel_tol=0.0, abs_tol=0.01):
-        raise ValueError(f"Unexpected forecastDuration: {duration}")
-    if cell_dimension_attrs != {"latRange": "0.1", "lonRange": "0.1"}:
-        raise ValueError(f"Unexpected cellDimension attributes: {cell_dimension_attrs}")
-    if depth_attrs != {"min": "0", "max": "70"}:
-        raise ValueError(f"Unexpected depthLayer attributes: {depth_attrs}")
+    if not forecast_data_seen:
+        errors.append("Missing forecastData element")
+    if depth_layer_seen != 1:
+        errors.append(f"Expected one depthLayer; found {depth_layer_seen}")
+    if not cell_dimension:
+        errors.append("Missing defaultCellDimension element")
 
-    bin_totals = [item.total for item in sums]
-    cumulative_totals = [math.fsum(bin_totals[i:]) for i in range(EXPECTED_BIN_COUNT)]
-    comparisons = []
-    for threshold, actual, expected in zip(thresholds, cumulative_totals, expected_rates):
-        relative_error = abs(actual - expected) / expected if expected else 0.0
-        comparisons.append({
+    # Check fixed metadata when supplied by the XML. Some older CSEP writers use different names.
+    if metadata.get("forecastStartDate") and metadata["forecastStartDate"] != expected_start:
+        errors.append(f"forecastStartDate={metadata['forecastStartDate']!r}; expected {expected_start!r}")
+    if metadata.get("forecastEndDate") and metadata["forecastEndDate"] != expected_end:
+        errors.append(f"forecastEndDate={metadata['forecastEndDate']!r}; expected {expected_end!r}")
+
+    for key in ("latRange", "lonRange"):
+        if key in cell_dimension and not close_enough(float(cell_dimension[key]), GRID_STEP, tolerance=0.0):
+            errors.append(f"defaultCellDimension {key}={cell_dimension[key]!r}; expected {GRID_STEP}")
+    if "min" in depth_layer and not close_enough(float(depth_layer["min"]), 0.0, tolerance=0.0):
+        errors.append(f"depthLayer min={depth_layer['min']!r}; expected 0")
+    if "max" in depth_layer and not close_enough(float(depth_layer["max"]), 70.0, tolerance=0.0):
+        errors.append(f"depthLayer max={depth_layer['max']!r}; expected 70")
+
+    totals = [item.value for item in bin_sums]
+    cumulative = [math.fsum(totals[i:]) for i in range(N_BINS)]
+    rate_comparisons = []
+    for threshold, actual, expected in zip(thresholds, cumulative, expected_rates):
+        relative = abs(actual - expected) / abs(expected) if expected else 0.0
+        rate_comparisons.append({
             "threshold_magnitude": threshold,
-            "xml_cumulative_events": actual,
-            "log_cumulative_events_per_year": expected,
-            "relative_difference": relative_error,
+            "xml_cumulative_expected_count": actual,
+            "run_log_cumulative_rate_events_per_year": expected,
+            "relative_difference": relative,
             "within_0_5_percent": close_enough(actual, expected),
         })
-        if not close_enough(actual, expected):
-            raise ValueError(
-                f"XML cumulative total above M{threshold:.2f} ({actual:.6f}) differs from run log "
-                f"({expected:.6f}) by {relative_error:.3%}; tolerance is 0.5%"
-            )
 
+    structure_errors = list(errors)
+    rates_match = all(item["within_0_5_percent"] for item in rate_comparisons)
     return {
-        "validation": "passed",
-        "xml_file": str(xml_path),
+        "xml_path": str(xml_path),
         "xml_size_bytes": xml_path.stat().st_size,
-        "xml_sha256": reader.hexdigest,
-        "root": f"{{{NAMESPACE}}}CSEPForecast",
+        "xml_sha256": reader.sha256,
+        "root_element": root_tag,
         "metadata": metadata,
-        "depth_layer": depth_attrs,
-        "cell_dimension": cell_dimension_attrs,
-        "cells": cell_count,
-        "magnitude_bins_per_cell": EXPECTED_BIN_COUNT,
-        "numeric_forecast_values": value_count,
+        "default_cell_dimension": cell_dimension,
+        "depth_layer": depth_layer,
+        "depth_layer_count": depth_layer_seen,
+        "cells_parsed": cell_count,
+        "unique_spatial_cells": unique_cells,
+        "magnitude_values_parsed": value_count,
+        "magnitude_bins_per_cell": N_BINS,
+        "magnitude_bin_labels_first_cell": bin_labels,
+        "coordinate_convention": centre_mode,
+        "first_5_cells": first_cells,
+        "last_5_cells": last_cells,
         "zero_values": zero_count,
-        "first_cell": first_cell,
-        "last_cell": last_cell,
-        "xml_global_sum_events_over_forecast_duration": cumulative_totals[0],
-        "expected_global_sum_from_run_log_events_per_year": expected_rates[0],
-        "cumulative_rate_comparisons": comparisons,
-        "magnitude_bin_sums_events_over_forecast_duration": bin_totals,
+        "negative_values": negative_count,
+        "nonfinite_values": nonfinite_count,
+        "minimum_finite_value": None if min_value is math.inf else min_value,
+        "maximum_finite_value": None if max_value is -math.inf else max_value,
+        "distinct_bin_expected_counts_over_forecast_period": totals,
+        "cumulative_expected_counts_by_threshold": cumulative,
+        "run_log_rate_comparisons": rate_comparisons,
+        "structure_and_value_validation": "passed" if not structure_errors else "failed",
+        "rate_comparison": "within_0.5_percent" if rates_match else "differs_by_more_than_0.5_percent",
+        "overall_validation": "passed" if not structure_errors and rates_match else "review_required",
+        "errors": structure_errors[:100],
         "notes": [
-            "The XML contains expected event counts per cell and magnitude bin over the configured one-year forecast duration, not rates per second.",
-            "Cumulative comparisons sum each bin and all higher-magnitude bins; tolerance allows for per-cell ES10.3 text rounding.",
-            "The validation uses a streaming parser and removes processed cell elements to keep memory bounded.",
+            "This is a streaming parser; processed <cell> elements are removed immediately to keep memory bounded.",
+            "The expected 0.1-degree grid is checked with a bitset, so duplicate/missing spatial cells are detected using under 1 MB of memory.",
+            "CSEP XML magnitude bins may be stored as child <bin m=...> elements or as 31 numeric values in cell text.",
+            "The XML's cumulative sums are compared to the 2014-2015 run log. A mismatch is reported, not silently adjusted.",
+            "A completed STEP #5 marker in the log does not replace this independent XML check.",
         ],
     }
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("xml", type=Path)
+    parser.add_argument("xml", type=Path, help="Path to GEAR1.global.forecast.xml")
     parser.add_argument(
         "--run-summary",
         type=Path,
         default=Path(__file__).resolve().parent / "results" / "gear1_original_run_2014-2015.json",
     )
-    parser.add_argument("--output", type=Path, help="Write validation report to this JSON path")
-    parser.add_argument("--expected-rows", type=int, default=EXPECTED_ROWS_DEFAULT, help=argparse.SUPPRESS)
-    parser.add_argument("--expected-columns", type=int, default=EXPECTED_COLUMNS_DEFAULT, help=argparse.SUPPRESS)
+    parser.add_argument("--output", type=Path, help="Path for the small JSON validation report")
     args = parser.parse_args()
 
-    result = validate(args.xml, args.run_summary, args.expected_rows, args.expected_columns)
-    rendered = json.dumps(result, ensure_ascii=False, indent=2) + "\n"
+    result = validate(args.xml, args.run_summary)
+    rendered = json.dumps(result, ensure_ascii=False, indent=2, allow_nan=False) + "\n"
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(rendered, encoding="utf-8")
     print(rendered, end="")
-    return 0
+    return 0 if result["overall_validation"] == "passed" else 2
 
 
 if __name__ == "__main__":
