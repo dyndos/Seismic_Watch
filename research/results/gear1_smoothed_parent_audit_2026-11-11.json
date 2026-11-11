@@ -1,0 +1,22 @@
+{
+  "dataset": "Kagan-Jackson smoothed seismicity parent grid supplied with Bird GEAR1 archive",
+  "source_file": "GL_HAZTBLT_M5_B2_2013.TMP",
+  "sha256": "a8b6f73b8ae2a7f98868972d8b49e05055e4d1efe8f8264385ec0b07128663bf",
+  "header_lines": 16,
+  "rows": 1800,
+  "columns": 3600,
+  "records": 6480000,
+  "grid_spacing_degrees": {
+    "longitude": 0.1,
+    "latitude": 0.1
+  },
+  "magnitude_label_in_source_header": "M>5.8",
+  "input_units": "expected earthquakes / day / km^2",
+  "density_min": 9.49e-12,
+  "density_max": 7.21e-7,
+  "density_mean": 7.298069650894562e-10,
+  "integrated_global_rate_events_per_year": 176.46676326759305,
+  "integrated_grid_area_m2": 510064479444642.0,
+  "method": "Spherical cell-area integral using the same constants/formula as GEAR1 Integrate_DP_Grid; density converted from per day per km^2 to per second per m^2.",
+  "scope_limit": "This is the integral of the seismicity parent input grid labelled M>5.8. It is not the final GEAR1 hybrid forecast and is not an independent forecast skill test."
+}
