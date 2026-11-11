@@ -3,6 +3,8 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$ArchivePath,
 
+    [string]$SmoothedGridPath,
+
     [ValidateSet("parallel", "sequential")]
     [string]$ExecutionMode = "parallel"
 )
@@ -35,7 +37,6 @@ $repoRoot = Split-Path -Parent $PSScriptRoot
 $gear1Root = Join-Path $repoRoot "data\external\gear1"
 $sourceDir = Join-Path $gear1Root "source"
 $runDir = Join-Path $gear1Root "run"
-$smoothedDir = Join-Path $gear1Root "expanded_smoothed"
 $underwaterDir = Join-Path $gear1Root "expanded_underwater"
 $gsrmDir = Join-Path $gear1Root "expanded_gsrm"
 
@@ -50,29 +51,41 @@ $pbSource = Join-Path $sourceDir "PB2002"
 $shiftSource = Join-Path $sourceDir "SHIFT_GSRM2_forecast"
 $kaganSource = Join-Path $sourceDir "Kagan_2009_GJI_I_scores"
 
-$smoothedZip = Join-Path $gear1Source "GL_HAZTBLT_M5_B2_2013.zip"
 $underwaterZip = Join-Path $kaganSource "underwater.grd.zip"
 $gsrmCompressed = Join-Path $shiftSource "GSRM_average_strain_v2.1.txt.Z"
 
-foreach ($requiredPath in @($smoothedZip, $underwaterZip, $gsrmCompressed)) {
+foreach ($requiredPath in @($underwaterZip, $gsrmCompressed)) {
     if (-not (Test-Path -LiteralPath $requiredPath -PathType Leaf)) {
         throw "Required source file is missing from the extracted archive: $requiredPath"
     }
 }
 
-Write-Host "Expanding the two nested ZIP input files..."
-Expand-Archive -LiteralPath $smoothedZip -DestinationPath $smoothedDir -Force
-Expand-Archive -LiteralPath $underwaterZip -DestinationPath $underwaterDir -Force
+# IMPORTANT: Dryad documents GEAR1_forecast/GL_HAZTBLT_M5_B2_2013.zip
+# as the published CSEP XML forecast output, not as the .TMP seismicity input.
+# Do not extract that published forecast ZIP and relabel it as the S-parent grid.
+if ($SmoothedGridPath) {
+    if (-not (Test-Path -LiteralPath $SmoothedGridPath -PathType Leaf)) {
+        throw "Smoothed-grid input not found: $SmoothedGridPath"
+    }
+    $smoothedFile = Get-Item -LiteralPath $SmoothedGridPath
+} else {
+    $smoothedCandidates = @(Get-ChildItem -LiteralPath $sourceDir -Recurse -File |
+        Where-Object { $_.Name -eq "GL_HAZTBLT_M5_B2_2013.TMP" })
+    if ($smoothedCandidates.Count -eq 0) {
+        throw "The required S-parent input GL_HAZTBLT_M5_B2_2013.TMP was not found in the extracted Dryad archive. The similarly named GEAR1_forecast/GL_HAZTBLT_M5_B2_2013.zip is the published CSEP XML output, not this input. Obtain the .TMP grid separately and rerun with -SmoothedGridPath."
+    }
+    if ($smoothedCandidates.Count -gt 1) {
+        throw "More than one GL_HAZTBLT_M5_B2_2013.TMP was found. Specify the intended file with -SmoothedGridPath."
+    }
+    $smoothedFile = $smoothedCandidates[0]
+}
 
-$smoothedFile = Get-ChildItem -LiteralPath $smoothedDir -Recurse -File |
-    Where-Object { $_.Name -eq "GL_HAZTBLT_M5_B2_2013.TMP" } |
-    Select-Object -First 1
+Write-Host "Expanding the underwater mask ZIP input..."
+Expand-Archive -LiteralPath $underwaterZip -DestinationPath $underwaterDir -Force
 $underwaterFile = Get-ChildItem -LiteralPath $underwaterDir -Recurse -File |
     Where-Object { $_.Name -eq "underwater.grd" } |
     Select-Object -First 1
-
-if (-not $smoothedFile) { throw "Nested archive did not contain GL_HAZTBLT_M5_B2_2013.TMP." }
-if (-not $underwaterFile) { throw "Nested archive did not contain underwater.grd." }
+if (-not $underwaterFile) { throw "The underwater mask ZIP did not contain underwater.grd." }
 
 $sevenZip = Get-Command "7z.exe" -ErrorAction SilentlyContinue
 if (-not $sevenZip) { $sevenZip = Get-Command "7z" -ErrorAction SilentlyContinue }
@@ -137,21 +150,37 @@ Copy-Item -LiteralPath $parametersSource -Destination (Join-Path $runDir "GEAR1_
 $manifestLines | Set-Content -LiteralPath (Join-Path $runDir "INPUT_SHA256SUMS.txt") -Encoding ASCII
 
 if ($ExecutionMode -eq "parallel") {
-    $selectedExe = Join-Path $gear1Source "GEAR1_for_CSEP-Win64par.exe"
-    $selectedExeName = "GEAR1_for_CSEP-Win64par.exe"
-    $dllSource = Join-Path $sourceDir "REQUIRED_DLL_files\Win64_version\libiomp5md.dll"
-    if (-not (Test-Path -LiteralPath $dllSource -PathType Leaf)) {
-        throw "The required 64-bit Intel OpenMP DLL is missing from the archive."
-    }
-    Copy-Item -LiteralPath $dllSource -Destination (Join-Path $runDir "libiomp5md.dll") -Force
+    $exeBase = "GEAR1_for_CSEP-Win64par.exe"
+    $selectedExeName = $exeBase
 } else {
-    $selectedExe = Join-Path $gear1Source "GEAR1_for_CSEP-Win64seq.exe"
-    $selectedExeName = "GEAR1_for_CSEP-Win64seq.exe"
+    $exeBase = "GEAR1_for_CSEP-Win64seq.exe"
+    $selectedExeName = $exeBase
 }
-if (-not (Test-Path -LiteralPath $selectedExe -PathType Leaf)) {
-    throw "Selected original GEAR1 executable is missing: $selectedExe"
+
+$exeCandidates = @(
+    (Join-Path $gear1Source $exeBase),
+    (Join-Path $gear1Source ($exeBase + ".bin"))
+)
+$selectedExe = $exeCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+if (-not $selectedExe) {
+    throw "Selected original GEAR1 executable was not found as $exeBase or $exeBase.bin in $gear1Source"
 }
 Copy-Item -LiteralPath $selectedExe -Destination (Join-Path $runDir $selectedExeName) -Force
+
+if ($ExecutionMode -eq "parallel") {
+    $dllCandidates = @(Get-ChildItem -LiteralPath $sourceDir -Recurse -File |
+        Where-Object { $_.Name -eq "libiomp5md.dll" })
+    if ($dllCandidates.Count -eq 0) {
+        throw "The 64-bit Intel OpenMP DLL libiomp5md.dll was not found in the archive. See the author's parallel-executable DLL instructions."
+    }
+    if ($dllCandidates.Count -gt 1) {
+        $dllCandidates = @($dllCandidates | Where-Object { $_.FullName -match "Win64|64" })
+    }
+    if ($dllCandidates.Count -ne 1) {
+        throw "Could not identify one unambiguous 64-bit libiomp5md.dll in the archive."
+    }
+    Copy-Item -LiteralPath $dllCandidates[0].FullName -Destination (Join-Path $runDir "libiomp5md.dll") -Force
+}
 Copy-Item -LiteralPath (Join-Path $gear1Source "how_to_build_the_GEAR1_XML_file.txt") -Destination $runDir -Force
 
 Write-Host ""
