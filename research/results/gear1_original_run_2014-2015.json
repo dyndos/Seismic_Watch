@@ -15,7 +15,8 @@
     "step_5": true,
     "terminal_marker": "PROGRAM GEAR1_for_CSEP: Job completed.",
     "xml_write_marker": "STEP #5 completed.",
-    "xml_artifact_received_and_validated": false
+    "xml_artifact_received_and_validated": false,
+    "step_2_evidence": "The log contains the full STEP #2 calculations and then transitions into STEP #3; the original program does not print a separate 'STEP #2 completed.' marker."
   },
   "configuration": {
     "forecast_start_utc": "2014-01-01T00:00:00Z",
@@ -98,7 +99,12 @@
       "zone_3": 2.36408,
       "zone_4": 3.10822
     },
-    "intraplate_rate_per_m2_per_second": 1.78158e-22
+    "intraplate_rate_per_m2_per_second": 1.78158e-22,
+    "random_number_generator": "VSL_BRNG_MCG31",
+    "random_number_generator_id": 1048576,
+    "random_number_seed": 1,
+    "explicit_completion_marker_present": false,
+    "execution_completed_by_transition_to_step_3": true
   },
   "step_3_rates": {
     "columns": [
@@ -367,7 +373,7 @@
     "step_5_completed": true
   },
   "caveats": [
-    "The log confirms the program reached STEP #5 and Job completed, but the XML file itself has not yet been downloaded or parsed in this conversation.",
+    "The log confirms STEP #5 and final job completion and reports writing the XML; the XML file itself has not yet been downloaded or parsed in this conversation.",
     "This is the original historical 2014-2015 GEAR1 forecast configuration, not a forecast for 2026.",
     "The original program assigns zero strain rate to 101 orphan GSRM cells after its neighbor propagation routine; this behavior is recorded, not silently treated as independent physical evidence.",
     "Distinct-bin rates are differences of cumulative rates rounded to 0.001 events/year in the log; they are approximate."
