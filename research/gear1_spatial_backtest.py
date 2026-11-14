@@ -560,11 +560,12 @@ def run_backtest(
         "forecast_end_utc": forecast_end.isoformat(),
         "calendar_interval_days": calendar_interval_days,
         "forecastDuration_metadata_value": raw_forecast_duration,
-        "forecastDuration_interpreted_as_days_for_comparison_only": metadata_duration_days,
-        "metadata_minus_calendar_interval_days": (
+        "forecastDuration_metadata_numeric_value": metadata_duration_days,
+        "numeric_duration_minus_calendar_interval_days_if_unit_is_days": (
             metadata_duration_days - calendar_interval_days
             if metadata_duration_days is not None else None
         ),
+        "duration_unit_assumption": "The raw XML field is preserved; the difference is only a conditional diagnostic assuming the numeric value is in days. No unit conversion is inferred.",
         "metadata_duration_used_to_rescale_xml_counts": False,
         "scaling_basis": "Exact elapsed time between forecastStartDate and forecastEndDate; the XML forecastDuration field is retained as an audit cross-check and is not used for rescaling.",
     }
