@@ -222,7 +222,10 @@ def parse_cell_values(cell: ET.Element) -> tuple[list[float], list[float | None]
             label = node.attrib.get("m", node.attrib.get("magnitude"))
             labels.append(float(label) if label is not None else None)
     else:
-        raw_text = " ".join(part.strip() for part in cell.itertext() if part.strip())
+        if cell.text and cell.text.strip():
+            raw_text = cell.text.strip()
+        else:
+            raw_text = " ".join(part.strip() for part in cell.itertext() if part.strip())
         tokens = [token for token in re.split(r"[\s,;]+", raw_text) if token]
         values = [float(token) for token in tokens]
         labels = [None] * len(values)
@@ -379,6 +382,9 @@ def run_backtest(
     event_counts_by_window: dict[str, list[Counter[int]]] | None = None
     event_cell_ids: set[int] = set()
     event_cell_forecasts: dict[int, dict[float, float]] = {}
+    score_threshold_indices: dict[float, int] = {}
+    grid_threshold_indices: dict[float, int] = {}
+    selected_bin_indices: set[int] = set()
     grid_maps: dict[float, np.memmap] = {}
     grid_paths: dict[float, Path] = {}
 
@@ -436,10 +442,17 @@ def run_backtest(
                         raise ValueError("Explicit XML magnitude labels do not match magnitude metadata")
                     elif len(labels) != bin_count:
                         raise ValueError("Inconsistent explicit magnitude labels")
-                    for threshold in (*thresholds, *grid_thresholds):
+                    for threshold in thresholds:
                         threshold_index = int(round((threshold - min_mag) / mag_step))
                         if threshold_index >= bin_count:
                             raise ValueError(f"Threshold {threshold} is outside the XML magnitude range")
+                        score_threshold_indices[threshold] = threshold_index
+                    for threshold in grid_thresholds:
+                        threshold_index = int(round((threshold - min_mag) / mag_step))
+                        if threshold_index >= bin_count:
+                            raise ValueError(f"Grid threshold {threshold} is outside the XML magnitude range")
+                        grid_threshold_indices[threshold] = threshold_index
+                    selected_bin_indices = set(score_threshold_indices.values()) | set(grid_threshold_indices.values())
                     event_counts_by_window, observation_meta = load_observations(
                         catalogue_path,
                         thresholds=thresholds,
@@ -483,35 +496,24 @@ def run_backtest(
                 unique_cell_count += 1
 
                 # One reverse pass produces all cumulative rates without repeated slicing.
-                min_mag = float(metadata["magnitudeMinValue"])
-                mag_step = float(metadata["magnitudeBinDimension"])
-                selected_indices = {
-                    int(round((threshold - min_mag) / mag_step)) for threshold in expected_sums
-                }
-                grid_indices = {
-                    threshold: int(round((threshold - min_mag) / mag_step)) for threshold in grid_thresholds
-                }
                 cumulative_by_index: dict[int, float] = {}
                 running = 0.0
                 for index in range(len(values) - 1, -1, -1):
                     running += values[index]
-                    if index in selected_indices:
+                    if index in selected_bin_indices:
                         cumulative_by_index[index] = running
-                for threshold in expected_sums:
-                    threshold_index = int(round((threshold - min_mag) / mag_step))
+                for threshold, threshold_index in score_threshold_indices.items():
                     expected_sums[threshold].add(cumulative_by_index[threshold_index])
-                for threshold, grid in grid_maps.items():
-                    grid[row_index, col_index] = cumulative_by_index[grid_indices[threshold]]
+                for threshold, threshold_index in grid_threshold_indices.items():
+                    grid_maps[threshold][row_index, col_index] = cumulative_by_index[threshold_index]
                 if cell_id in event_cell_ids:
                     event_cell_forecasts[cell_id] = {
-                        threshold: cumulative_by_index[int(round((threshold - min_mag) / mag_step))]
-                        for threshold in thresholds
+                        threshold: cumulative_by_index[threshold_index]
+                        for threshold, threshold_index in score_threshold_indices.items()
                     }
 
                 numeric_value_count += len(values)
-                zero_value_count += sum(value == 0.0 for value in values)
-                negative_value_count += sum(value < 0.0 for value in values)
-                nonfinite_value_count += sum(not math.isfinite(value) for value in values)
+                zero_value_count += values.count(0.0)
                 if len(stack) >= 2:
                     stack[-2].remove(elem)
                 elem.clear()
