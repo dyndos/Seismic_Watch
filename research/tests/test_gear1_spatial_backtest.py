@@ -6,7 +6,7 @@ from pathlib import Path
 
 import xml.etree.ElementTree as ET
 
-from gear1_spatial_backtest import (
+from research.gear1_spatial_backtest import (
     coordinate_to_grid_index,
     grid_index_from_xml_center,
     load_observations,
