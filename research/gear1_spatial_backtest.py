@@ -548,6 +548,26 @@ def run_backtest(
     if not forecast_start < forecast_end:
         raise ValueError("Invalid forecast interval in XML metadata")
     full_duration = (forecast_end - forecast_start).total_seconds()
+    calendar_interval_days = full_duration / 86400.0
+    raw_forecast_duration = metadata.get("forecastDuration")
+    metadata_duration_days = float(raw_forecast_duration) if raw_forecast_duration else None
+    if metadata_duration_days is not None and (
+        not math.isfinite(metadata_duration_days) or metadata_duration_days <= 0.0
+    ):
+        raise ValueError(f"Invalid forecastDuration metadata: {raw_forecast_duration!r}")
+    duration_audit = {
+        "forecast_start_utc": forecast_start.isoformat(),
+        "forecast_end_utc": forecast_end.isoformat(),
+        "calendar_interval_days": calendar_interval_days,
+        "forecastDuration_metadata_value": raw_forecast_duration,
+        "forecastDuration_interpreted_as_days_for_comparison_only": metadata_duration_days,
+        "metadata_minus_calendar_interval_days": (
+            metadata_duration_days - calendar_interval_days
+            if metadata_duration_days is not None else None
+        ),
+        "metadata_duration_used_to_rescale_xml_counts": False,
+        "scaling_basis": "Exact elapsed time between forecastStartDate and forecastEndDate; the XML forecastDuration field is retained as an audit cross-check and is not used for rescaling.",
+    }
     post_start = max(forecast_start, issue_date)
     post_fraction = max(0.0, (forecast_end - post_start).total_seconds() / full_duration)
     full_fraction = 1.0
@@ -599,6 +619,7 @@ def run_backtest(
         "catalogue_sha256": observation_meta["catalogue_sha256"],
         "xml_root": root_tag,
         "metadata": metadata,
+        "duration_audit": duration_audit,
         "cell_dimension": cell_dimension,
         "depth_layer": depth_layer,
         "grid": {
@@ -631,7 +652,7 @@ def run_backtest(
             "baseline": "uniform rate per square kilometre, normalized to the same global expected count as GEAR1",
             "information_gain_units": "nats; positive favours GEAR1 over area-uniform baseline",
             "declustering": "not applied; earthquake clustering/dependence remains a limitation",
-            "time_scaling": "static GEAR1 rates scaled linearly by elapsed fraction for post-issue partial interval",
+            "time_scaling": "static GEAR1 rates scaled linearly by elapsed calendar-time fraction from forecastStartDate to forecastEndDate; XML forecastDuration is reported separately and not used for rescaling",
             "issue_date_caveat": "the full-year window is a retrospective hindcast because issueDate falls inside the declared forecast interval",
         },
         "grid_files": [path.name for path in grid_paths.values()],
