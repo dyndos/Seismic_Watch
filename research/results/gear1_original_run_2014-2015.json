@@ -15,7 +15,7 @@
     "step_5": true,
     "terminal_marker": "PROGRAM GEAR1_for_CSEP: Job completed.",
     "xml_write_marker": "STEP #5 completed.",
-    "xml_artifact_received_and_validated": false,
+    "xml_artifact_received_and_validated": true,
     "step_2_evidence": "The log contains the full STEP #2 calculations and then transitions into STEP #3; the original program does not print a separate 'STEP #2 completed.' marker."
   },
   "configuration": {
@@ -373,9 +373,74 @@
     "step_5_completed": true
   },
   "caveats": [
-    "The log confirms STEP #5 and final job completion and reports writing the XML; the XML file itself has not yet been downloaded or parsed in this conversation.",
     "This is the original historical 2014-2015 GEAR1 forecast configuration, not a forecast for 2026.",
     "The original program assigns zero strain rate to 101 orphan GSRM cells after its neighbor propagation routine; this behavior is recorded, not silently treated as independent physical evidence.",
-    "Distinct-bin rates are differences of cumulative rates rounded to 0.001 events/year in the log; they are approximate."
-  ]
+    "Distinct-bin rates are differences of cumulative rates rounded to 0.001 events/year in the log; they are approximate.",
+    "The XML metadata issueDate is 2014-06-04T23:59:59Z, about 155 days after forecastStartDate. Treat the full-year evaluation as a hindcast with a 2013-12-29 catalog cutoff unless historical input-layer availability is established; an operational post-issue evaluation must start after issueDate."
+  ],
+  "xml_validation": {
+    "report_file": "gear1_xml_validation_v2.json",
+    "xml_size_bytes": 3967560863,
+    "xml_sha256": "a034c76b3a454c5f4a43df3b222569f9ebb217f56ebab5e9c7ca564d3dabdd05",
+    "root_element": "{http://www.scec.org/xml-ns/csep/forecast/1.1}CSEPForecast",
+    "issue_date_utc": "2014-06-04T23:59:59Z",
+    "forecast_start_utc": "2014-01-01T00:00:00Z",
+    "forecast_end_utc": "2015-01-01T00:00:00Z",
+    "depth_km": [
+      0,
+      70
+    ],
+    "grid_degrees": [
+      0.1,
+      0.1
+    ],
+    "cells": 6480000,
+    "unique_cells": 6480000,
+    "magnitude_bins_per_cell": 31,
+    "magnitude_thresholds": [
+      5.95,
+      6.05,
+      6.15,
+      6.25,
+      6.35,
+      6.45,
+      6.55,
+      6.65,
+      6.75,
+      6.85,
+      6.95,
+      7.05,
+      7.15,
+      7.25,
+      7.35,
+      7.45,
+      7.55,
+      7.65,
+      7.75,
+      7.85,
+      7.95,
+      8.05,
+      8.15,
+      8.25,
+      8.35,
+      8.45,
+      8.55,
+      8.65,
+      8.75,
+      8.85,
+      8.95
+    ],
+    "numeric_values": 200880000,
+    "zero_negative_nonfinite_values": [
+      0,
+      0,
+      0
+    ],
+    "global_expected_count_mw_ge_5_95": 116.19968168724546,
+    "max_relative_difference_vs_run_log": 0.002439124331095656,
+    "structure_and_value_validation": "passed",
+    "rate_comparison": "within_0.5_percent",
+    "overall_validation": "passed",
+    "validation_scope": "custom streaming structural and numerical checks; not formal validation against the official CSEP XSD"
+  }
 }
