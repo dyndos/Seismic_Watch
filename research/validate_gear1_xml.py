@@ -180,7 +180,7 @@ def validate(xml_path: Path, summary_path: Path) -> dict[str, object]:
                         errors.append(f"Root element does not declare a recognized CSEP forecast namespace: {elem.tag!r}")
                 elif tag == "forecastData":
                     forecast_data_seen = True
-                elif tag == "defaultCellDimension":
+                elif tag in {"defaultCellDimension", "cellDimension"}:
                     cell_dimension = dict(elem.attrib)
                 elif tag == "depthLayer":
                     depth_layer_seen += 1
@@ -307,7 +307,7 @@ def validate(xml_path: Path, summary_path: Path) -> dict[str, object]:
     if depth_layer_seen != 1:
         errors.append(f"Expected one depthLayer; found {depth_layer_seen}")
     if not cell_dimension:
-        errors.append("Missing defaultCellDimension element")
+        errors.append("Missing cellDimension/defaultCellDimension element")
 
     # Check fixed metadata when supplied by the XML. Some older CSEP writers use different names.
     if metadata.get("forecastStartDate") and metadata["forecastStartDate"] != expected_start:
@@ -317,15 +317,32 @@ def validate(xml_path: Path, summary_path: Path) -> dict[str, object]:
 
     for key in ("latRange", "lonRange"):
         if key in cell_dimension and not close_enough(float(cell_dimension[key]), GRID_STEP, tolerance=0.0):
-            errors.append(f"defaultCellDimension {key}={cell_dimension[key]!r}; expected {GRID_STEP}")
+            errors.append(f"cellDimension {key}={cell_dimension[key]!r}; expected {GRID_STEP}")
     if "min" in depth_layer and not close_enough(float(depth_layer["min"]), 0.0, tolerance=0.0):
         errors.append(f"depthLayer min={depth_layer['min']!r}; expected 0")
     if "max" in depth_layer and not close_enough(float(depth_layer["max"]), 70.0, tolerance=0.0):
         errors.append(f"depthLayer max={depth_layer['max']!r}; expected 70")
 
+    magnitude_labels_source = "explicit_xml_attributes"
+    if bin_labels and any(label is None for label in bin_labels):
+        try:
+            mag_min = float(metadata["magnitudeMinValue"])
+            mag_step = float(metadata["magnitudeBinDimension"])
+            bin_labels = [mag_min + i * mag_step for i in range(N_BINS)]
+            magnitude_labels_source = "inferred_from_forecast_metadata"
+        except (KeyError, ValueError):
+            magnitude_labels_source = "unavailable"
+            errors.append("Magnitude-bin labels are absent and cannot be inferred from metadata")
     if bin_labels and all(label is not None for label in bin_labels):
         if any(float(bin_labels[i]) >= float(bin_labels[i + 1]) for i in range(len(bin_labels) - 1)):
             errors.append("Magnitude-bin labels are not strictly increasing")
+        if metadata.get("magnitudeMinValue") and abs(float(bin_labels[0]) - float(metadata["magnitudeMinValue"])) > 1e-6:
+            errors.append("First magnitude-bin label does not match magnitudeMinValue")
+        if metadata.get("magnitudeBinDimension") and any(
+            abs((float(bin_labels[i + 1]) - float(bin_labels[i])) - float(metadata["magnitudeBinDimension"])) > 1e-6
+            for i in range(len(bin_labels) - 1)
+        ):
+            errors.append("Magnitude-bin labels do not match magnitudeBinDimension")
 
     totals = [item.value for item in bin_sums]
     cumulative = [math.fsum(totals[i:]) for i in range(N_BINS)]
@@ -348,7 +365,7 @@ def validate(xml_path: Path, summary_path: Path) -> dict[str, object]:
         "xml_sha256": reader.sha256,
         "root_element": root_tag,
         "metadata": metadata,
-        "default_cell_dimension": cell_dimension,
+        "cell_dimension": cell_dimension,
         "depth_layer": depth_layer,
         "depth_layer_count": depth_layer_seen,
         "cells_parsed": cell_count,
@@ -356,6 +373,7 @@ def validate(xml_path: Path, summary_path: Path) -> dict[str, object]:
         "magnitude_values_parsed": value_count,
         "magnitude_bins_per_cell": N_BINS,
         "magnitude_bin_labels_first_cell": bin_labels,
+        "magnitude_bin_labels_source": magnitude_labels_source,
         "coordinate_convention": centre_mode,
         "first_5_cells": first_cells,
         "last_5_cells": last_cells,
@@ -374,7 +392,7 @@ def validate(xml_path: Path, summary_path: Path) -> dict[str, object]:
         "notes": [
             "This is a streaming parser; processed <cell> elements are removed immediately to keep memory bounded.",
             "The expected 0.1-degree grid is checked with a bitset, so duplicate/missing spatial cells are detected using under 1 MB of memory.",
-            "CSEP XML magnitude bins may be stored as child <bin m=...> elements or as 31 numeric values in cell text.",
+            "CSEP XML magnitude bins may be stored as child <bin m=...> elements or as 31 whitespace-separated numeric values in cell text; labels are inferred from magnitudeMinValue and magnitudeBinDimension when not explicit.",
             "The XML's cumulative sums are compared to the 2014-2015 run log. A mismatch is reported, not silently adjusted.",
             "A completed STEP #5 marker in the log does not replace this independent XML check.",
         ],
