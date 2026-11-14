@@ -7,6 +7,7 @@ from pathlib import Path
 import xml.etree.ElementTree as ET
 
 from research.gear1_spatial_backtest import (
+    build_duration_audit,
     coordinate_to_grid_index,
     grid_index_from_xml_center,
     load_observations,
@@ -75,3 +76,18 @@ def test_area_weights_sum_to_spherical_global_weight():
     values = uniform_area_fraction_by_row()
     assert math.isclose(sum(values), 2.0, rel_tol=1e-12)
     assert values[0] < values[900]  # polar rows cover less surface area
+
+
+def test_duration_audit_reports_but_does_not_apply_metadata_duration():
+    start = datetime(2014, 1, 1, tzinfo=timezone.utc)
+    end = datetime(2015, 1, 1, tzinfo=timezone.utc)
+    audit = build_duration_audit(start, end, "365.25")
+
+    assert audit["calendar_interval_days"] == 365.0
+    assert audit["forecastDuration_metadata_numeric_value"] == 365.25
+    assert math.isclose(
+        audit["numeric_duration_minus_calendar_interval_days_if_unit_is_days"],
+        0.25,
+    )
+    assert audit["metadata_duration_used_to_rescale_xml_counts"] is False
+    assert "No unit conversion is inferred" in audit["duration_unit_assumption"]
