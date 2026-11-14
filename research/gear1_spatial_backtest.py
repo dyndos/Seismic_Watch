@@ -338,6 +338,41 @@ def score_window_threshold(
     return summary, cell_rows
 
 
+def build_duration_audit(
+    forecast_start: datetime,
+    forecast_end: datetime,
+    raw_forecast_duration: str | None,
+) -> dict[str, Any]:
+    """Preserve the XML duration field and compare it conditionally to date bounds."""
+    calendar_days = (forecast_end - forecast_start).total_seconds() / 86400.0
+    if calendar_days <= 0.0:
+        raise ValueError("Forecast date interval must have positive duration")
+    metadata_value = float(raw_forecast_duration) if raw_forecast_duration else None
+    if metadata_value is not None and (
+        not math.isfinite(metadata_value) or metadata_value <= 0.0
+    ):
+        raise ValueError(f"Invalid forecastDuration metadata: {raw_forecast_duration!r}")
+    return {
+        "forecast_start_utc": forecast_start.isoformat(),
+        "forecast_end_utc": forecast_end.isoformat(),
+        "calendar_interval_days": calendar_days,
+        "forecastDuration_metadata_raw": raw_forecast_duration,
+        "forecastDuration_metadata_numeric_value": metadata_value,
+        "numeric_duration_minus_calendar_interval_days_if_unit_is_days": (
+            metadata_value - calendar_days if metadata_value is not None else None
+        ),
+        "duration_unit_assumption": (
+            "The raw XML field is preserved; the difference is only a conditional diagnostic "
+            "assuming the numeric value is in days. No unit conversion is inferred."
+        ),
+        "metadata_duration_used_to_rescale_xml_counts": False,
+        "scaling_basis": (
+            "Exact elapsed time between forecastStartDate and forecastEndDate; the XML "
+            "forecastDuration field is retained as an audit cross-check and is not used for rescaling."
+        ),
+    }
+
+
 def validate_metadata(metadata: dict[str, str], cell_dimension: dict[str, str], depth_layer: dict[str, str]) -> None:
     required = {"forecastStartDate", "forecastEndDate", "issueDate", "magnitudeMinValue", "magnitudeBinDimension"}
     missing = required - set(metadata)
@@ -548,27 +583,9 @@ def run_backtest(
     if not forecast_start < forecast_end:
         raise ValueError("Invalid forecast interval in XML metadata")
     full_duration = (forecast_end - forecast_start).total_seconds()
-    calendar_interval_days = full_duration / 86400.0
-    raw_forecast_duration = metadata.get("forecastDuration")
-    metadata_duration_days = float(raw_forecast_duration) if raw_forecast_duration else None
-    if metadata_duration_days is not None and (
-        not math.isfinite(metadata_duration_days) or metadata_duration_days <= 0.0
-    ):
-        raise ValueError(f"Invalid forecastDuration metadata: {raw_forecast_duration!r}")
-    duration_audit = {
-        "forecast_start_utc": forecast_start.isoformat(),
-        "forecast_end_utc": forecast_end.isoformat(),
-        "calendar_interval_days": calendar_interval_days,
-        "forecastDuration_metadata_value": raw_forecast_duration,
-        "forecastDuration_metadata_numeric_value": metadata_duration_days,
-        "numeric_duration_minus_calendar_interval_days_if_unit_is_days": (
-            metadata_duration_days - calendar_interval_days
-            if metadata_duration_days is not None else None
-        ),
-        "duration_unit_assumption": "The raw XML field is preserved; the difference is only a conditional diagnostic assuming the numeric value is in days. No unit conversion is inferred.",
-        "metadata_duration_used_to_rescale_xml_counts": False,
-        "scaling_basis": "Exact elapsed time between forecastStartDate and forecastEndDate; the XML forecastDuration field is retained as an audit cross-check and is not used for rescaling.",
-    }
+    duration_audit = build_duration_audit(
+        forecast_start, forecast_end, metadata.get("forecastDuration")
+    )
     post_start = max(forecast_start, issue_date)
     post_fraction = max(0.0, (forecast_end - post_start).total_seconds() / full_duration)
     full_fraction = 1.0
